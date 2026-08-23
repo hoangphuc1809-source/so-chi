@@ -32,13 +32,23 @@ function livePrices(symbols) {
   const r = spawnSync(cfg.PYTHON_EXE, [path.join(__dirname, "price.py"), ...symbols],
     { encoding: "utf8", timeout: 60000 });
   if (r.status !== 0) return { prices: {}, missing: symbols, error: (r.stderr || "").slice(0, 200) };
-  try {
-    const out = JSON.parse(r.stdout);
-    return out.ok ? { prices: out.prices || {}, missing: out.missing || [] }
-                  : { prices: {}, missing: symbols, error: out.error };
-  } catch {
-    return { prices: {}, missing: symbols, error: "price.py tra ve JSON hong" };
+
+  // vnstock in banner quang cao ra stdout, tron lan voi JSON.
+  // Quet nguoc tu duoi len, lay dong dau tien parse duoc.
+  const out = extractJson(r.stdout);
+  if (!out) return { prices: {}, missing: symbols, error: "khong tim thay JSON trong output price.py" };
+  return out.ok ? { prices: out.prices || {}, missing: out.missing || [] }
+                : { prices: {}, missing: symbols, error: out.error };
+}
+
+function extractJson(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith("{")) continue;
+    try { return JSON.parse(line); } catch { /* thu dong tiep theo */ }
   }
+  return null;
 }
 
 function build() {
@@ -79,16 +89,21 @@ function build() {
     p.weight = stockValue > 0 && p.market_value != null ? (p.market_value / stockValue) * 100 : null;
   });
 
+  // Neu thieu gia cua bat ky ma nao, KHONG bao cao NAV va lai/lo —
+  // mot con so sai nhin rat giong con so dung, nguy hiem hon la de trong.
+  const degraded = positions.some((p) => p.market_price == null);
+
   return {
     ok: true,
+    degraded,
     generated_at: new Date().toISOString(),
-    nav,
+    nav: degraded ? null : nav,
     cash: state.cash,
     margin_debt: state.cash < 0 ? -state.cash : 0,
-    stock_value: stockValue,
+    stock_value: degraded ? null : stockValue,
     cost_value: costValue,
-    unrealized_pl: stockValue - costValue,
-    unrealized_pct: costValue > 0 ? ((stockValue - costValue) / costValue) * 100 : null,
+    unrealized_pl: degraded ? null : stockValue - costValue,
+    unrealized_pct: degraded || costValue <= 0 ? null : ((stockValue - costValue) / costValue) * 100,
     realized_pl: realizedTotal,
     positions,
     price_missing: missing,
