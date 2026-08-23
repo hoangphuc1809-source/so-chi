@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { q, uid, now } from "./db.js";
 import { createUser, login, verifyToken, userCount } from "./auth.js";
 import { readReceipt } from "./ocr.js";
+import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -13,6 +14,8 @@ const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const ALLOW_REGISTER = process.env.ALLOW_REGISTER === "1";
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
+const PORTFOLIO_PUSH_TOKEN = process.env.PORTFOLIO_PUSH_TOKEN || "";
+const PORTFOLIO_USER = process.env.PORTFOLIO_USER || "";
 
 /* ============================ tiện ích ============================ */
 
@@ -160,6 +163,8 @@ route("GET", "/api/bootstrap", (ctx) => {
       q.all("SELECT key,value FROM settings WHERE user_id=?", u).map((s) => [s.key, s.value])
     ),
     ocr_enabled: Boolean(process.env.GEMINI_API_KEY),
+    assistant_enabled: Boolean(process.env.GEMINI_API_KEY),
+    has_portfolio: Boolean(q.get("SELECT 1 AS x FROM portfolio_snapshot WHERE user_id=?", u)),
   };
 });
 
@@ -465,6 +470,63 @@ route("POST", "/api/ocr", async (ctx) => {
   } catch (e) {
     throw httpError(e.code === "NO_KEY" ? 503 : 502, e.message);
   }
+});
+
+/* ---- trợ lý tài chính ---- */
+
+route("POST", "/api/assistant", async (ctx) => {
+  try {
+    return await assistantAsk(
+      ctx.userId,
+      ctx.body.question,
+      Array.isArray(ctx.body.history) ? ctx.body.history : [],
+      /^\d{4}-\d{2}$/.test(ctx.body.month || "") ? ctx.body.month : undefined
+    );
+  } catch (e) {
+    throw httpError(e.code === "NO_KEY" ? 503 : 502, e.message);
+  }
+});
+
+route("GET", "/api/insights", (ctx) => ({
+  insights: computeInsights(ctx.userId, /^\d{4}-\d{2}$/.test(ctx.query.month || "") ? ctx.query.month : undefined),
+}));
+
+/* ---- danh mục chứng khoán (đẩy từ portfolio-bot trên hermes-gateway) ---- */
+
+route("POST", "/api/portfolio/snapshot", (ctx) => {
+  if (!PORTFOLIO_PUSH_TOKEN) throw httpError(503, "Máy chủ chưa bật luồng nhận danh mục");
+  const given = String(ctx.req.headers["x-sochi-push"] || "").trim();
+  const a = Buffer.from(given);
+  const b = Buffer.from(PORTFOLIO_PUSH_TOKEN.trim());
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    throw httpError(401, "Token đẩy danh mục không đúng");
+  }
+
+  const owner = PORTFOLIO_USER
+    ? q.get("SELECT id FROM users WHERE username = ?", PORTFOLIO_USER.toLowerCase())
+    : q.get("SELECT id FROM users ORDER BY created_at LIMIT 1");
+  if (!owner) throw httpError(404, "Chưa có tài khoản nào để gắn danh mục");
+
+  const payload = JSON.stringify(ctx.body).slice(0, 400000);
+  q.run(
+    `INSERT INTO portfolio_snapshot (user_id,payload,generated_at,received_at) VALUES (?,?,?,?)
+     ON CONFLICT(user_id) DO UPDATE SET payload=excluded.payload,
+       generated_at=excluded.generated_at, received_at=excluded.received_at`,
+    owner.id, payload, str(ctx.body.generated_at, 40), now()
+  );
+  return { ok: true, positions: (ctx.body.positions || []).length };
+}, { auth: false });
+
+route("GET", "/api/portfolio", (ctx) => {
+  const row = q.get("SELECT * FROM portfolio_snapshot WHERE user_id=?", ctx.userId);
+  if (!row) return { snapshot: null };
+  let snap;
+  try { snap = JSON.parse(row.payload); } catch { return { snapshot: null }; }
+  return {
+    snapshot: snap,
+    received_at: row.received_at,
+    age_minutes: Math.round((now() - row.received_at) / 60000),
+  };
 });
 
 /* ---- cài đặt ---- */

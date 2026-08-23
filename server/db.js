@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS settings (
   value   TEXT NOT NULL,
   PRIMARY KEY (user_id, key)
 );
+
+CREATE TABLE IF NOT EXISTS portfolio_snapshot (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  payload     TEXT NOT NULL,
+  generated_at TEXT,
+  received_at INTEGER NOT NULL
+);
 `);
 
 export const uid = () => randomUUID().replace(/-/g, "").slice(0, 16);

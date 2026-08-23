@@ -1987,6 +1987,438 @@ function PayCard({
     }
   }, busy ? "Đang lưu…" : "Ghi nhận thanh toán")));
 }
+function Invest({
+  flash
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    setBusy(true);
+    api("/portfolio").then(d => {
+      setData(d);
+      setErr("");
+    }).catch(e => setErr(e.message)).finally(() => setBusy(false));
+  }, []);
+  useEffect(load, [load]);
+  if (err) return React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 30,
+      color: cssVar("--red"),
+      fontSize: 14
+    }
+  }, err);
+  if (busy && !data) return React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 40,
+      textAlign: "center",
+      color: cssVar("--muted"),
+      fontSize: 14
+    }
+  }, "Đang tải…");
+  const s = data && data.snapshot;
+  if (!s) {
+    return React.createElement("div", {
+      className: "pad"
+    }, React.createElement(Empty, {
+      text: "Chưa nhận được dữ liệu danh mục."
+    }), React.createElement("div", {
+      className: "box",
+      style: {
+        padding: 16
+      }
+    }, React.createElement("div", {
+      className: "num label"
+    }, "Cách hoạt động"), React.createElement("p", {
+      style: {
+        fontSize: 13,
+        color: cssVar("--muted"),
+        lineHeight: 1.7,
+        marginTop: 10,
+        marginBottom: 0
+      }
+    }, "Sổ Chi không tự tính danh mục. Số liệu do ", React.createElement("b", null, "portfolio-bot"), " trên máy chủ hermes-gateway tính từ sổ giao dịch FIFO rồi đẩy sang đây theo lịch. Nếu tab này trống, kiểm tra dịch vụ ", React.createElement("span", {
+      className: "num"
+    }, "portfolio-bot"), " và timer ", React.createElement("span", {
+      className: "num"
+    }, "portfolio-snapshot"), " bên đó.")));
+  }
+  const stale = data.age_minutes > 60;
+  const plColor = v => v == null ? cssVar("--muted") : v > 0 ? cssVar("--green") : v < 0 ? cssVar("--red") : cssVar("--ink");
+  const sign = v => v > 0 ? "+" : "";
+  return React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 22
+    }
+  }, s.degraded && React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 12,
+      marginBottom: 18,
+      borderColor: cssVar("--amber")
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: cssVar("--amber")
+    }
+  }, "Thiếu giá thị trường của ", (s.price_missing || []).join(", ") || "một số mã", " nên NAV và lãi/lỗ chưa tính được. Giá vốn và số lượng vẫn chính xác.")), React.createElement("section", {
+    style: {
+      marginBottom: 24
+    }
+  }, React.createElement("div", {
+    className: "num label"
+  }, "Tổng tài sản ròng"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 34,
+      fontWeight: 700,
+      letterSpacing: "-.02em",
+      marginTop: 3
+    }
+  }, s.nav != null ? money(s.nav) : "—"), !s.degraded && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      marginTop: 4,
+      color: plColor(s.unrealized_pl)
+    }
+  }, sign(s.unrealized_pl), money(s.unrealized_pl), " chưa thực hiện", s.unrealized_pct != null && ` (${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}%)`), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: stale ? cssVar("--amber") : cssVar("--muted"),
+      marginTop: 6
+    }
+  }, "cập nhật ", data.age_minutes < 1 ? "vừa xong" : `${data.age_minutes} phút trước`, stale && " — số liệu đã cũ", "  ·  ", React.createElement("button", {
+    onClick: load,
+    style: {
+      color: cssVar("--blue"),
+      fontSize: 11
+    }
+  }, "tải lại"))), React.createElement("section", {
+    className: "grid2",
+    style: {
+      marginBottom: 24
+    }
+  }, React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Giá trị cổ phiếu"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 18,
+      fontWeight: 600,
+      marginTop: 3
+    }
+  }, s.stock_value != null ? short(s.stock_value) : "—")), React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, s.margin_debt > 0 ? "Dư nợ margin" : "Tiền mặt"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 18,
+      fontWeight: 600,
+      marginTop: 3,
+      color: s.margin_debt > 0 ? cssVar("--red") : cssVar("--ink")
+    }
+  }, short(s.margin_debt > 0 ? s.margin_debt : s.cash)))), s.margin_debt > 0 && s.stock_value > 0 && React.createElement("section", {
+    style: {
+      marginBottom: 24
+    }
+  }, React.createElement("div", {
+    className: "between",
+    style: {
+      alignItems: "baseline",
+      marginBottom: 6
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "Tỷ lệ nợ trên tài sản"), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 13,
+      fontWeight: 500
+    }
+  }, (s.margin_debt / s.stock_value * 100).toFixed(1), "%")), React.createElement(Bar, {
+    value: s.margin_debt,
+    max: s.stock_value,
+    height: 5,
+    color: s.margin_debt / s.stock_value > 0.5 ? cssVar("--red") : cssVar("--amber")
+  })), React.createElement(SectionLabel, null, "Vị thế đang giữ"), React.createElement("div", {
+    style: {
+      marginTop: 12
+    }
+  }, (s.positions || []).map(p => React.createElement("div", {
+    key: p.symbol,
+    className: "tape",
+    style: {
+      padding: "14px 0"
+    }
+  }, React.createElement("div", {
+    className: "between",
+    style: {
+      alignItems: "baseline"
+    }
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      letterSpacing: ".02em"
+    }
+  }, p.symbol), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: plColor(p.pl)
+    }
+  }, p.pl != null ? `${sign(p.pl)}${short(p.pl)}` : "—", p.pl_pct != null && React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 400
+    }
+  }, " ", sign(p.pl_pct), p.pl_pct.toFixed(2), "%"))), React.createElement("div", {
+    className: "between num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 4
+    }
+  }, React.createElement("span", null, nf.format(p.qty), " cp · vốn ", nf.format(p.avg_cost), " · giá ", p.market_price != null ? nf.format(p.market_price) : "—"), React.createElement("span", null, p.weight != null ? `${p.weight.toFixed(1)}%` : "")), p.weight != null && React.createElement("div", {
+    style: {
+      marginTop: 7
+    }
+  }, React.createElement(Bar, {
+    value: p.weight,
+    max: 100,
+    color: p.weight > 40 ? cssVar("--amber") : cssVar("--blue"),
+    height: 3
+  })), p.weight > 40 && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--amber"),
+      marginTop: 5
+    }
+  }, "tỷ trọng trên 40%, danh mục đang tập trung vào mã này")))), React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 24,
+      lineHeight: 1.6
+    }
+  }, "Số liệu ghi chép từ sổ giao dịch FIFO của portfolio-bot, không phải số liệu chính thức từ công ty chứng khoán và không phải khuyến nghị đầu tư. Đối chiếu với app TCBS trước khi ra quyết định."));
+}
+const SUGGESTIONS = ["Tháng này tôi tiêu nhiều nhất vào đâu?", "So với tháng trước tôi tiêu tăng hay giảm?", "Có danh mục nào đang tăng bất thường không?", "Chi tiếp khách tháng này bao nhiêu?", "Tôi có khoản nào sắp phải trả không?"];
+function Assistant({
+  data,
+  month,
+  flash
+}) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tips, setTips] = useState([]);
+  const endRef = useRef(null);
+  useEffect(() => {
+    api(`/insights?month=${month}`).then(r => setTips(r.insights || [])).catch(() => {});
+  }, [month]);
+  useEffect(() => {
+    if (endRef.current) endRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "end"
+    });
+  }, [messages, busy]);
+  const send = async text => {
+    const question = (text || input).trim();
+    if (!question || busy) return;
+    setInput("");
+    const history = messages.map(m => ({
+      role: m.role,
+      text: m.text
+    }));
+    setMessages(prev => [...prev, {
+      role: "user",
+      text: question
+    }]);
+    setBusy(true);
+    try {
+      const r = await api("/assistant", {
+        method: "POST",
+        body: {
+          question,
+          history,
+          month
+        }
+      });
+      setMessages(prev => [...prev, {
+        role: "model",
+        text: r.answer
+      }]);
+    } catch (e) {
+      setMessages(prev => [...prev, {
+        role: "model",
+        text: e.message,
+        error: true
+      }]);
+    }
+    setBusy(false);
+  };
+  if (!data.assistant_enabled) {
+    return React.createElement("div", {
+      className: "pad",
+      style: {
+        paddingTop: 30
+      }
+    }, React.createElement(Empty, {
+      text: "Trợ lý chưa bật."
+    }), React.createElement("p", {
+      style: {
+        fontSize: 13,
+        color: cssVar("--muted"),
+        lineHeight: 1.7
+      }
+    }, "Thêm ", React.createElement("span", {
+      className: "num"
+    }, "GEMINI_API_KEY"), " vào file .env trên máy chủ rồi khởi động lại dịch vụ để bật."));
+  }
+  return React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 20
+    }
+  }, tips.length > 0 && React.createElement("section", {
+    style: {
+      marginBottom: 20
+    }
+  }, React.createElement(SectionLabel, null, "Đáng chú ý"), React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, tips.map((t, i) => React.createElement("div", {
+    key: i,
+    className: "row",
+    style: {
+      gap: 8,
+      padding: "6px 0",
+      fontSize: 13
+    }
+  }, React.createElement("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: 99,
+      flexShrink: 0,
+      background: cssVar(t.level === "red" ? "--red" : "--amber")
+    }
+  }), React.createElement("span", null, t.text))))), messages.length === 0 ? React.createElement("section", {
+    style: {
+      marginBottom: 20
+    }
+  }, React.createElement(SectionLabel, null, "Thử hỏi"), React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, SUGGESTIONS.map(s => React.createElement("button", {
+    key: s,
+    onClick: () => send(s),
+    className: "tape",
+    style: {
+      width: "100%",
+      textAlign: "left",
+      padding: "12px 0",
+      fontSize: 14
+    }
+  }, s)))) : React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, messages.map((m, i) => React.createElement("div", {
+    key: i,
+    style: {
+      marginBottom: 16,
+      display: "flex",
+      justifyContent: m.role === "user" ? "flex-end" : "flex-start"
+    }
+  }, React.createElement("div", {
+    style: {
+      maxWidth: "86%",
+      padding: "10px 14px",
+      borderRadius: 14,
+      fontSize: 14,
+      lineHeight: 1.6,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      background: m.role === "user" ? cssVar("--ink") : cssVar("--card"),
+      color: m.role === "user" ? cssVar("--onink") : m.error ? cssVar("--red") : cssVar("--ink"),
+      border: m.role === "user" ? "none" : `1px solid ${cssVar("--line")}`
+    }
+  }, m.text))), busy && React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 8,
+      color: cssVar("--muted"),
+      fontSize: 13,
+      padding: "4px 0"
+    }
+  }, React.createElement("span", {
+    className: "spin"
+  }), " đang xem số liệu…"), React.createElement("div", {
+    ref: endRef
+  })), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 8,
+      position: "sticky",
+      bottom: 96,
+      background: cssVar("--paper"),
+      paddingTop: 8,
+      paddingBottom: 4
+    }
+  }, React.createElement("input", {
+    className: "field",
+    value: input,
+    placeholder: "Hỏi về chi tiêu của bạn…",
+    onChange: e => setInput(e.target.value),
+    onKeyDown: e => e.key === "Enter" && send()
+  }), React.createElement(Button, {
+    onClick: () => send(),
+    disabled: busy || !input.trim(),
+    style: {
+      borderRadius: 8,
+      padding: "10px 18px",
+      fontSize: 14
+    }
+  }, "Gửi")), React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 12,
+      lineHeight: 1.6
+    }
+  }, "Mọi con số do máy chủ tính bằng SQL, trợ lý chỉ diễn giải chứ không tự tính. Phần này không đưa khuyến nghị đầu tư."));
+}
 function Reports({
   month,
   setMonth,
@@ -2535,9 +2967,16 @@ const TABS = [{
   id: "cards",
   label: "Thẻ"
 }, {
+  id: "invest",
+  label: "Đầu tư"
+}, {
   id: "reports",
   label: "Báo cáo"
 }, {
+  id: "assistant",
+  label: "Trợ lý"
+}];
+const ALL_SCREENS = [...TABS, {
   id: "settings",
   label: "Cài đặt"
 }];
@@ -2693,13 +3132,28 @@ function App() {
       fontWeight: 600,
       marginTop: 4
     }
-  }, (TABS.find(t => t.id === tab) || {}).label)), tab === "home" && React.createElement(Button, {
+  }, (ALL_SCREENS.find(t => t.id === tab) || {}).label)), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 10
+    }
+  }, tab === "home" && React.createElement(Button, {
     onClick: () => setEntry({}),
     style: {
       padding: "9px 18px",
       fontSize: 14
     }
-  }, "+ Thêm")), tab === "home" && React.createElement(Home, {
+  }, "+ Thêm"), React.createElement("button", {
+    onClick: () => setTab(tab === "settings" ? "home" : "settings"),
+    "aria-label": "Cài đặt",
+    title: "Cài đặt",
+    style: {
+      fontSize: 20,
+      lineHeight: 1,
+      padding: "4px 2px",
+      color: tab === "settings" ? cssVar("--ink") : cssVar("--muted")
+    }
+  }, tab === "settings" ? "×" : "⚙"))), tab === "home" && React.createElement(Home, {
     data: data,
     month: month,
     setMonth: setMonth,
@@ -2718,9 +3172,15 @@ function App() {
     data: data,
     reload: reload,
     flash: flash
+  }), tab === "invest" && React.createElement(Invest, {
+    flash: flash
   }), tab === "reports" && React.createElement(Reports, {
     month: month,
     setMonth: setMonth,
+    flash: flash
+  }), tab === "assistant" && React.createElement(Assistant, {
+    data: data,
+    month: month,
     flash: flash
   }), tab === "settings" && React.createElement(Settings, {
     data: data,
@@ -2753,9 +3213,10 @@ function App() {
       onClick: () => setTab(n.id),
       style: {
         flex: 1,
-        padding: "15px 0",
-        fontSize: 12,
+        padding: "14px 2px",
+        fontSize: 11,
         fontWeight: on ? 600 : 400,
+        whiteSpace: "nowrap",
         color: on ? cssVar("--ink") : cssVar("--muted"),
         borderTop: `2px solid ${on ? cssVar("--ink") : "transparent"}`,
         marginTop: -1

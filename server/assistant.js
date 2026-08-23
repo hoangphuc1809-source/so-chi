@@ -143,6 +143,28 @@ export function buildContext(userId, month = monthNow()) {
   }
   if (total.n === 0) L.push("\nLƯU Ý: tháng này chưa có giao dịch nào được ghi.");
 
+  // Danh muc chung khoan (neu portfolio-bot da day snapshot sang)
+  const pf = q.get("SELECT payload, received_at FROM portfolio_snapshot WHERE user_id=?", userId);
+  if (pf) {
+    try {
+      const s = JSON.parse(pf.payload);
+      const age = Math.round((Date.now() - pf.received_at) / 60000);
+      L.push(`\nDANH MỤC CHỨNG KHOÁN (cập nhật ${age} phút trước):`);
+      if (s.degraded) {
+        L.push("  Thiếu giá thị trường của một số mã nên NAV và lãi/lỗ chưa tính được.");
+      } else {
+        L.push(`  NAV: ${money(s.nav)}`);
+        L.push(`  Giá trị cổ phiếu: ${money(s.stock_value)}, tiền mặt: ${money(s.cash)}${s.margin_debt > 0 ? `, dư nợ margin: ${money(s.margin_debt)}` : ""}`);
+        L.push(`  Lãi/lỗ chưa thực hiện: ${money(s.unrealized_pl)}${s.unrealized_pct != null ? ` (${s.unrealized_pct.toFixed(2)}%)` : ""}`);
+      }
+      (s.positions || []).forEach((p) => {
+        L.push(`  ${p.symbol}: ${p.qty} cp, giá vốn ${money(p.avg_cost)}` +
+          (p.market_price != null ? `, giá ${money(p.market_price)}, lãi/lỗ ${money(p.pl)} (${p.pl_pct.toFixed(2)}%), tỷ trọng ${p.weight.toFixed(1)}%` : ", chưa có giá"));
+      });
+      L.push("  (Đây là số liệu ghi chép, KHÔNG được dùng để khuyến nghị mua bán.)");
+    } catch { /* snapshot hong thi bo qua */ }
+  }
+
   return L.join("\n");
 }
 

@@ -313,9 +313,11 @@ const TABS = [
   { id: "home", label: "Tổng quan" },
   { id: "bills", label: "Hóa đơn" },
   { id: "cards", label: "Thẻ" },
+  { id: "invest", label: "Đầu tư" },
   { id: "reports", label: "Báo cáo" },
-  { id: "settings", label: "Cài đặt" },
+  { id: "assistant", label: "Trợ lý" },
 ];
+const ALL_SCREENS = [...TABS, { id: "settings", label: "Cài đặt" }];
 
 function App() {
   const [phase, setPhase] = useState("loading"); // loading | login | ready
@@ -446,13 +448,21 @@ function App() {
               </div>
             ) : (
               <div style={{ fontSize: 19, fontWeight: 600, marginTop: 4 }}>
-                {(TABS.find((t) => t.id === tab) || {}).label}
+                {(ALL_SCREENS.find((t) => t.id === tab) || {}).label}
               </div>
             )}
           </div>
-          {tab === "home" && (
-            <Button onClick={() => setEntry({})} style={{ padding: "9px 18px", fontSize: 14 }}>+ Thêm</Button>
-          )}
+          <div className="row" style={{ gap: 10 }}>
+            {tab === "home" && (
+              <Button onClick={() => setEntry({})} style={{ padding: "9px 18px", fontSize: 14 }}>+ Thêm</Button>
+            )}
+            <button onClick={() => setTab(tab === "settings" ? "home" : "settings")}
+              aria-label="Cài đặt" title="Cài đặt"
+              style={{ fontSize: 20, lineHeight: 1, padding: "4px 2px",
+                color: tab === "settings" ? cssVar("--ink") : cssVar("--muted") }}>
+              {tab === "settings" ? "×" : "⚙"}
+            </button>
+          </div>
         </header>
 
         {tab === "home" && (
@@ -462,7 +472,9 @@ function App() {
         )}
         {tab === "bills" && <Bills data={data} reload={reload} flash={flash} />}
         {tab === "cards" && <Cards data={data} reload={reload} flash={flash} />}
+        {tab === "invest" && <Invest flash={flash} />}
         {tab === "reports" && <Reports month={month} setMonth={setMonth} flash={flash} />}
+        {tab === "assistant" && <Assistant data={data} month={month} flash={flash} />}
         {tab === "settings" && (
           <Settings data={data} reload={reload} flash={flash}
             theme={theme} setTheme={setTheme} onLogout={logout} />
@@ -479,7 +491,7 @@ function App() {
             return (
               <button key={n.id} onClick={() => setTab(n.id)}
                 style={{
-                  flex: 1, padding: "15px 0", fontSize: 12, fontWeight: on ? 600 : 400,
+                  flex: 1, padding: "14px 2px", fontSize: 11, fontWeight: on ? 600 : 400, whiteSpace: "nowrap",
                   color: on ? cssVar("--ink") : cssVar("--muted"),
                   borderTop: `2px solid ${on ? cssVar("--ink") : "transparent"}`, marginTop: -1,
                 }}>

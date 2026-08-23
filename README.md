@@ -17,6 +17,14 @@ tỷ lệ sử dụng, ghi nhận trả nợ, ngày sao kê và ngày đến h�
 **Báo cáo** — xu hướng 12 tháng, theo danh mục, theo loại chi, theo phương thức,
 theo thứ trong tuần, 5 khoản lớn nhất.
 
+**Đầu tư** — danh mục chứng khoán đọc từ `portfolio-bot` trên máy chủ hermes-gateway:
+NAV, dư nợ margin, lãi/lỗ từng mã, tỷ trọng, cảnh báo tập trung. Sổ Chi **không** tự tính
+danh mục — số liệu do portfolio-bot tính bằng sổ FIFO rồi đẩy sang.
+
+**Trợ lý** — hỏi đáp về chi tiêu bằng tiếng Việt, chạy trên Gemini. Nguyên tắc thiết kế:
+mọi con số do máy chủ tính bằng SQL, Gemini chỉ diễn giải và bị cấm tự tính ra số mới.
+Kèm phần "Đáng chú ý" tính thuần bằng SQL nên luôn chính xác.
+
 **Khác** — giao diện sáng/tối, xuất CSV và JSON, nhắc hạn qua Telegram.
 
 ## Kiến trúc
