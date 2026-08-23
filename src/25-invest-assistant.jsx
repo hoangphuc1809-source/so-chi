@@ -15,6 +15,13 @@ function Invest({ flash }) {
 
   useEffect(load, [load]);
 
+  // Trong phien thi tu lam moi gia, ngoai phien thi thoi cho do ton pin.
+  useEffect(() => {
+    if (!data || !data.price_info || !data.price_info.market_open) return;
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [data, load]);
+
   if (err) return <div className="pad" style={{ paddingTop: 30, color: cssVar("--red"), fontSize: 14 }}>{err}</div>;
   if (busy && !data) return <div className="pad" style={{ paddingTop: 40, textAlign: "center", color: cssVar("--muted"), fontSize: 14 }}>Đang tải…</div>;
 
@@ -36,7 +43,6 @@ function Invest({ flash }) {
     );
   }
 
-  const stale = data.age_minutes > 60;
   const plColor = (v) => (v == null ? cssVar("--muted") : v > 0 ? cssVar("--green") : v < 0 ? cssVar("--red") : cssVar("--ink"));
   const sign = (v) => (v > 0 ? "+" : "");
 
@@ -62,9 +68,18 @@ function Invest({ flash }) {
             {s.unrealized_pct != null && ` (${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}%)`}
           </div>
         )}
-        <div className="num" style={{ fontSize: 11, color: stale ? cssVar("--amber") : cssVar("--muted"), marginTop: 6 }}>
-          cập nhật {data.age_minutes < 1 ? "vừa xong" : `${data.age_minutes} phút trước`}
-          {stale && " — số liệu đã cũ"}
+        <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 6 }}>
+          {s.live_prices ? (
+            <span style={{ color: cssVar("--green") }}>
+              giá {data.price_info && data.price_info.market_open ? "trực tiếp" : "đóng cửa"}
+              {data.price_info && ` lúc ${new Date(data.price_info.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`}
+            </span>
+          ) : (
+            <span style={{ color: cssVar("--amber") }}>
+              {data.price_error ? `không lấy được giá: ${data.price_error}` : "đang dùng giá của lần đẩy gần nhất"}
+            </span>
+          )}
+          {"  ·  vị thế "}{data.age_minutes < 1 ? "vừa cập nhật" : `cập nhật ${data.age_minutes} phút trước`}
           {"  ·  "}
           <button onClick={load} style={{ color: cssVar("--blue"), fontSize: 11 }}>tải lại</button>
         </div>
@@ -115,7 +130,14 @@ function Invest({ flash }) {
               </span>
             </div>
             <div className="between num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 4 }}>
-              <span>{nf.format(p.qty)} cp · vốn {nf.format(p.avg_cost)} · giá {p.market_price != null ? nf.format(p.market_price) : "—"}</span>
+              <span>
+                {nf.format(p.qty)} cp · vốn {nf.format(p.avg_cost)} · giá {p.market_price != null ? nf.format(p.market_price) : "—"}
+                {p.day_change_pct != null && (
+                  <span style={{ color: plColor(p.day_change) }}>
+                    {" "}({sign(p.day_change_pct)}{p.day_change_pct.toFixed(2)}% hôm nay)
+                  </span>
+                )}
+              </span>
               <span>{p.weight != null ? `${p.weight.toFixed(1)}%` : ""}</span>
             </div>
             {p.weight != null && (

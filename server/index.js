@@ -7,6 +7,7 @@ import { q, uid, now } from "./db.js";
 import { createUser, login, verifyToken, userCount } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
+import { fetchPrices, applyLivePrices } from "./prices.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -517,15 +518,31 @@ route("POST", "/api/portfolio/snapshot", (ctx) => {
   return { ok: true, positions: (ctx.body.positions || []).length };
 }, { auth: false });
 
-route("GET", "/api/portfolio", (ctx) => {
+route("GET", "/api/portfolio", async (ctx) => {
   const row = q.get("SELECT * FROM portfolio_snapshot WHERE user_id=?", ctx.userId);
   if (!row) return { snapshot: null };
   let snap;
   try { snap = JSON.parse(row.payload); } catch { return { snapshot: null }; }
+
+  // Vi the lay tu snapshot (chi doi khi mua ban). Gia lay live moi lan mo tab.
+  let priceInfo = null;
+  let priceError = null;
+  if (ctx.query.live !== "0" && (snap.positions || []).length) {
+    try {
+      const live = await fetchPrices(snap.positions.map((p) => p.symbol));
+      snap = applyLivePrices(snap, live.prices);
+      priceInfo = { at: live.at, cached: live.cached, market_open: live.market_open };
+    } catch (e) {
+      priceError = e.message;
+    }
+  }
+
   return {
     snapshot: snap,
     received_at: row.received_at,
     age_minutes: Math.round((now() - row.received_at) / 60000),
+    price_info: priceInfo,
+    price_error: priceError,
   };
 });
 

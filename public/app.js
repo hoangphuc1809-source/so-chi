@@ -2001,6 +2001,11 @@ function Invest({
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    if (!data || !data.price_info || !data.price_info.market_open) return;
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [data, load]);
   if (err) return React.createElement("div", {
     className: "pad",
     style: {
@@ -2045,7 +2050,6 @@ function Invest({
       className: "num"
     }, "portfolio-snapshot"), " bên đó.")));
   }
-  const stale = data.age_minutes > 60;
   const plColor = v => v == null ? cssVar("--muted") : v > 0 ? cssVar("--green") : v < 0 ? cssVar("--red") : cssVar("--ink");
   const sign = v => v > 0 ? "+" : "";
   return React.createElement("div", {
@@ -2090,10 +2094,21 @@ function Invest({
     className: "num",
     style: {
       fontSize: 11,
-      color: stale ? cssVar("--amber") : cssVar("--muted"),
+      color: cssVar("--muted"),
       marginTop: 6
     }
-  }, "cập nhật ", data.age_minutes < 1 ? "vừa xong" : `${data.age_minutes} phút trước`, stale && " — số liệu đã cũ", "  ·  ", React.createElement("button", {
+  }, s.live_prices ? React.createElement("span", {
+    style: {
+      color: cssVar("--green")
+    }
+  }, "giá ", data.price_info && data.price_info.market_open ? "trực tiếp" : "đóng cửa", data.price_info && ` lúc ${new Date(data.price_info.at).toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit"
+  })}`) : React.createElement("span", {
+    style: {
+      color: cssVar("--amber")
+    }
+  }, data.price_error ? `không lấy được giá: ${data.price_error}` : "đang dùng giá của lần đẩy gần nhất"), "  ·  vị thế ", data.age_minutes < 1 ? "vừa cập nhật" : `cập nhật ${data.age_minutes} phút trước`, "  ·  ", React.createElement("button", {
     onClick: load,
     style: {
       color: cssVar("--blue"),
@@ -2205,7 +2220,11 @@ function Invest({
       color: cssVar("--muted"),
       marginTop: 4
     }
-  }, React.createElement("span", null, nf.format(p.qty), " cp · vốn ", nf.format(p.avg_cost), " · giá ", p.market_price != null ? nf.format(p.market_price) : "—"), React.createElement("span", null, p.weight != null ? `${p.weight.toFixed(1)}%` : "")), p.weight != null && React.createElement("div", {
+  }, React.createElement("span", null, nf.format(p.qty), " cp · vốn ", nf.format(p.avg_cost), " · giá ", p.market_price != null ? nf.format(p.market_price) : "—", p.day_change_pct != null && React.createElement("span", {
+    style: {
+      color: plColor(p.day_change)
+    }
+  }, " ", "(", sign(p.day_change_pct), p.day_change_pct.toFixed(2), "% hôm nay)")), React.createElement("span", null, p.weight != null ? `${p.weight.toFixed(1)}%` : "")), p.weight != null && React.createElement("div", {
     style: {
       marginTop: 7
     }
