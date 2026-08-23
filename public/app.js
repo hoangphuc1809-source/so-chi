@@ -1987,18 +1987,59 @@ function PayCard({
     }
   }, busy ? "Đang lưu…" : "Ghi nhận thanh toán")));
 }
+const TRADE_TYPES = [{
+  id: "BUY",
+  label: "Mua",
+  needs: ["symbol", "qty", "priceVND"]
+}, {
+  id: "SELL",
+  label: "Bán",
+  needs: ["symbol", "qty", "priceVND"]
+}, {
+  id: "DEPOSIT",
+  label: "Nạp tiền",
+  needs: ["cash"]
+}, {
+  id: "WITHDRAW",
+  label: "Rút tiền",
+  needs: ["cash"]
+}, {
+  id: "DIVIDEND_CASH",
+  label: "Cổ tức tiền",
+  needs: ["cash"]
+}, {
+  id: "INTEREST",
+  label: "Lãi/phí margin",
+  needs: ["cash"]
+}, {
+  id: "STOCK_BONUS",
+  label: "CP thưởng",
+  needs: ["symbol", "qty"]
+}, {
+  id: "ADJUSTMENT",
+  label: "Điều chỉnh",
+  needs: ["cash"]
+}, {
+  id: "INIT_CASH",
+  label: "Khởi tạo",
+  needs: ["cash"]
+}];
 function Invest({
   flash
 }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [trade, setTrade] = useState(null);
+  const [hist, setHist] = useState(null);
+  const [showHist, setShowHist] = useState(false);
   const load = useCallback(() => {
     setBusy(true);
     api("/portfolio").then(d => {
       setData(d);
       setErr("");
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
+    api("/stock/history?limit=100").then(setHist).catch(() => {});
   }, []);
   useEffect(load, [load]);
   useEffect(() => {
@@ -2069,7 +2110,19 @@ function Invest({
       fontSize: 13,
       color: cssVar("--amber")
     }
-  }, "Thiếu giá thị trường của ", (s.price_missing || []).join(", ") || "một số mã", " nên NAV và lãi/lỗ chưa tính được. Giá vốn và số lượng vẫn chính xác.")), React.createElement("section", {
+  }, "Thiếu giá thị trường của ", (s.price_missing || []).join(", ") || "một số mã", " nên NAV và lãi/lỗ chưa tính được. Giá vốn và số lượng vẫn chính xác.")), React.createElement("div", {
+    className: "between",
+    style: {
+      marginBottom: 4
+    }
+  }, React.createElement("span", null), React.createElement(Button, {
+    kind: "outline",
+    onClick: () => setTrade({}),
+    style: {
+      padding: "6px 14px",
+      fontSize: 13
+    }
+  }, "+ Giao dịch")), React.createElement("section", {
     style: {
       marginBottom: 24
     }
@@ -2240,14 +2293,124 @@ function Invest({
       color: cssVar("--amber"),
       marginTop: 5
     }
-  }, "tỷ trọng trên 40%, danh mục đang tập trung vào mã này")))), React.createElement("p", {
+  }, "tỷ trọng trên 40%, danh mục đang tập trung vào mã này")))), hist && hist.realized && hist.realized.length > 0 && React.createElement("section", {
+    style: {
+      marginTop: 28
+    }
+  }, React.createElement(SectionLabel, null, "Đã chốt lời lỗ"), React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, hist.realized.slice(0, 8).map((r, i) => React.createElement("div", {
+    key: i,
+    className: "tape between",
+    style: {
+      padding: "11px 0"
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, r.symbol), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, " ", nf.format(r.qty), " cp · ", r.date, " · giữ ", r.holdDays, " ngày")), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 14,
+      fontWeight: 500,
+      color: plColor(r.pl)
+    }
+  }, sign(r.pl), short(r.pl), React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 400
+    }
+  }, " ", sign(r.plPct), r.plPct.toFixed(1), "%")))))), hist && hist.history && hist.history.length > 0 && React.createElement("section", {
+    style: {
+      marginTop: 28
+    }
+  }, React.createElement(SectionLabel, {
+    right: React.createElement("button", {
+      onClick: () => setShowHist(!showHist),
+      style: {
+        fontSize: 12,
+        color: cssVar("--blue")
+      }
+    }, showHist ? "thu gọn" : `xem tất cả (${hist.history.length})`)
+  }, "Sổ giao dịch"), React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, (showHist ? hist.history : hist.history.slice(0, 5)).map(h => React.createElement("div", {
+    key: h.id,
+    className: "tape between",
+    style: {
+      padding: "10px 0",
+      opacity: h.voided ? 0.45 : 1
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, h.label, h.symbol && React.createElement("span", {
+    className: "num",
+    style: {
+      fontWeight: 600
+    }
+  }, " ", h.symbol), h.voided && React.createElement("span", {
+    style: {
+      color: cssVar("--red"),
+      fontSize: 11
+    }
+  }, " · đã hủy")), React.createElement("span", {
+    className: "num",
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, h.date, h.qty ? ` · ${nf.format(h.qty)} cp` : "", h.price_vnd ? ` · ${nf.format(h.price_vnd)}` : "", h.note ? ` · ${h.note}` : "")), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 13
+    }
+  }, h.cash != null ? money(h.cash) : h.qty && h.price_vnd ? short(h.qty * h.price_vnd) : "")))), !hist.history[0].voided && React.createElement("div", {
+    style: {
+      marginTop: 12
+    }
+  }, React.createElement(UndoLast, {
+    flash: flash,
+    onDone: load,
+    last: hist.history[0]
+  }))), React.createElement("p", {
     style: {
       fontSize: 11,
       color: cssVar("--muted"),
       marginTop: 24,
       lineHeight: 1.6
     }
-  }, "Số liệu ghi chép từ sổ giao dịch FIFO của portfolio-bot, không phải số liệu chính thức từ công ty chứng khoán và không phải khuyến nghị đầu tư. Đối chiếu với app TCBS trước khi ra quyết định."));
+  }, "Số liệu tính từ sổ giao dịch FIFO của chính bạn, không phải số liệu chính thức từ công ty chứng khoán và không phải khuyến nghị đầu tư. Đối chiếu với app TCBS trước khi ra quyết định."), trade && React.createElement(TradeForm, {
+    flash: flash,
+    onClose: () => setTrade(null),
+    onSaved: () => {
+      setTrade(null);
+      load();
+    }
+  }));
 }
 const SUGGESTIONS = ["Tháng này tôi tiêu nhiều nhất vào đâu?", "So với tháng trước tôi tiêu tăng hay giảm?", "Có danh mục nào đang tăng bất thường không?", "Chi tiếp khách tháng này bao nhiêu?", "Tôi có khoản nào sắp phải trả không?"];
 function Assistant({
@@ -2437,6 +2600,231 @@ function Assistant({
       lineHeight: 1.6
     }
   }, "Mọi con số do máy chủ tính bằng SQL, trợ lý chỉ diễn giải chứ không tự tính. Phần này không đưa khuyến nghị đầu tư."));
+}
+function UndoLast({
+  last,
+  onDone,
+  flash
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const undo = async () => {
+    setBusy(true);
+    try {
+      await api("/stock/undo", {
+        method: "POST",
+        body: {
+          reason: "huy tu app"
+        }
+      });
+      flash("Đã hủy giao dịch cuối");
+      onDone();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  if (!confirm) {
+    return React.createElement(Button, {
+      kind: "danger",
+      onClick: () => setConfirm(true)
+    }, "Hủy giao dịch cuối (", last.label, last.symbol ? " " + last.symbol : "", " ", last.date, ")");
+  }
+  return React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "Hủy ", last.label, last.symbol ? " " + last.symbol : "", " ngày ", last.date, "?", " ", React.createElement("button", {
+    onClick: undo,
+    disabled: busy,
+    style: {
+      color: cssVar("--red"),
+      fontWeight: 600
+    }
+  }, busy ? "đang hủy…" : "Hủy"), " · ", React.createElement("button", {
+    onClick: () => setConfirm(false),
+    style: {
+      color: cssVar("--muted")
+    }
+  }, "Giữ lại"));
+}
+function TradeForm({
+  onClose,
+  onSaved,
+  flash
+}) {
+  const [type, setType] = useState("BUY");
+  const [symbol, setSymbol] = useState("");
+  const [qty, setQty] = useState("");
+  const [price, setPrice] = useState("");
+  const [cash, setCash] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const spec = TRADE_TYPES.find(t => t.id === type) || TRADE_TYPES[0];
+  const needs = f => spec.needs.includes(f);
+  const qtyNum = Number(qty) || 0;
+  const priceNum = Number(price) || 0;
+  const cashNum = Number(cash) || 0;
+  const gross = qtyNum * priceNum;
+  const ready = (!needs("symbol") || /^[A-Za-z]{3}$/.test(symbol.trim())) && (!needs("qty") || qtyNum > 0) && (!needs("priceVND") || priceNum > 0) && (!needs("cash") || cashNum !== 0);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const body = {
+        type,
+        date,
+        note: note.trim()
+      };
+      if (needs("symbol")) body.symbol = symbol.trim().toUpperCase();
+      if (needs("qty")) body.qty = qtyNum;
+      if (needs("priceVND")) body.priceVND = priceNum;
+      if (needs("cash")) body.cash = cashNum;
+      await api("/stock/tx", {
+        method: "POST",
+        body
+      });
+      flash("Đã ghi vào sổ");
+      onSaved();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  return React.createElement(Sheet, {
+    title: "Ghi giao dịch",
+    onClose: onClose
+  }, React.createElement(Field, {
+    label: "Loại giao dịch"
+  }, React.createElement(Chips, {
+    options: TRADE_TYPES.map(t => ({
+      id: t.id,
+      label: t.label
+    })),
+    value: type,
+    onChange: setType
+  })), needs("symbol") && React.createElement(Field, {
+    label: "Mã chứng khoán"
+  }, React.createElement("input", {
+    className: "field num",
+    value: symbol,
+    maxLength: 3,
+    autoFocus: true,
+    placeholder: "HCM",
+    style: {
+      width: 120,
+      textTransform: "uppercase"
+    },
+    onChange: e => setSymbol(e.target.value.replace(/[^A-Za-z]/g, ""))
+  })), needs("qty") && React.createElement(Field, {
+    label: "Số lượng"
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: qty,
+    placeholder: "5000",
+    onChange: e => setQty(e.target.value)
+  })), needs("priceVND") && React.createElement(Field, {
+    label: "Giá khớp",
+    hint: "Nhập theo ĐỒNG: 25900, không phải 25,9"
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: price,
+    placeholder: "25900",
+    onChange: e => setPrice(e.target.value)
+  }), priceNum > 0 && priceNum < 1000 && React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--red"),
+      marginTop: 6
+    }
+  }, nf.format(priceNum), "đ một cổ phiếu — có phải bạn định nhập ", nf.format(priceNum * 1000), "đ?")), needs("cash") && React.createElement(Field, {
+    label: "Số tiền",
+    hint: type === "ADJUSTMENT" || type === "INTEREST" ? "Số âm để trừ tiền, ví dụ phí margin" : null
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: cash,
+    autoFocus: true,
+    placeholder: "10000000",
+    onChange: e => setCash(e.target.value)
+  }), cashNum !== 0 && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 6
+    }
+  }, money(cashNum))), gross > 0 && React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 12,
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "between num",
+    style: {
+      fontSize: 13
+    }
+  }, React.createElement("span", {
+    style: {
+      color: cssVar("--muted")
+    }
+  }, "Giá trị lệnh"), React.createElement("span", {
+    style: {
+      fontWeight: 600
+    }
+  }, money(gross))), type === "SELL" && React.createElement("div", {
+    className: "between num",
+    style: {
+      fontSize: 12,
+      marginTop: 5,
+      color: cssVar("--muted")
+    }
+  }, React.createElement("span", null, "Thuế bán 0,1%"), React.createElement("span", null, "−", money(Math.round(gross * 0.001))))), React.createElement(Field, {
+    label: "Ngày giao dịch"
+  }, React.createElement("input", {
+    className: "field num",
+    type: "date",
+    value: date,
+    style: {
+      width: "auto"
+    },
+    onChange: e => setDate(e.target.value)
+  })), React.createElement(Field, {
+    label: "Ghi chú"
+  }, React.createElement("input", {
+    className: "field",
+    value: note,
+    placeholder: "tuỳ chọn",
+    onChange: e => setNote(e.target.value)
+  })), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 12,
+      marginTop: 24
+    }
+  }, React.createElement(Button, {
+    kind: "ghost",
+    onClick: onClose
+  }, "Hủy"), React.createElement(Button, {
+    onClick: submit,
+    disabled: busy || !ready,
+    style: {
+      flex: 1
+    }
+  }, busy ? "Đang ghi…" : "Ghi vào sổ")), React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 16,
+      lineHeight: 1.6
+    }
+  }, "Sổ chỉ ghi thêm, không sửa và không xóa. Nếu nhập nhầm, dùng nút hủy giao dịch cuối — giao dịch vẫn được lưu lại nhưng không còn tính vào số dư."));
 }
 function Reports({
   month,

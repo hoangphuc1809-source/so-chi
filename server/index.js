@@ -8,7 +8,8 @@ import { createUser, login, verifyToken, userCount } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices } from "./prices.js";
-import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs } from "./stock.js";
+import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs,
+         appendTx, undoLast, history as stockHistory, realizedTrades, txTypes } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -520,10 +521,23 @@ route("POST", "/api/portfolio/snapshot", (ctx) => {
 }, { auth: false });
 
 route("GET", "/api/portfolio", async (ctx) => {
-  const row = q.get("SELECT * FROM portfolio_snapshot WHERE user_id=?", ctx.userId);
-  if (!row) return { snapshot: null };
-  let snap;
-  try { snap = JSON.parse(row.payload); } catch { return { snapshot: null }; }
+  let snap = null;
+  let source = "sochi";
+  let receivedAt = null;
+
+  // Uu tien so giao dich nam ngay trong SQLite cua app.
+  if (q.get("SELECT 1 AS x FROM stock_tx WHERE user_id=? AND voided=0 LIMIT 1", ctx.userId)) {
+    const own = stockPositions(ctx.userId);
+    if (own.error) throw httpError(409, "Sổ giao dịch đang lỗi: " + own.error);
+    snap = { ...own, degraded: true, nav: null, stock_value: null, unrealized_pl: null, unrealized_pct: null };
+  } else {
+    // Chua di tru thi doc snapshot cu do portfolio-bot day sang.
+    const row = q.get("SELECT * FROM portfolio_snapshot WHERE user_id=?", ctx.userId);
+    if (!row) return { snapshot: null };
+    try { snap = JSON.parse(row.payload); } catch { return { snapshot: null }; }
+    source = "snapshot";
+    receivedAt = row.received_at;
+  }
 
   // Vi the lay tu snapshot (chi doi khi mua ban). Gia lay live moi lan mo tab.
   let priceInfo = null;
@@ -540,12 +554,26 @@ route("GET", "/api/portfolio", async (ctx) => {
 
   return {
     snapshot: snap,
-    received_at: row.received_at,
-    age_minutes: Math.round((now() - row.received_at) / 60000),
+    source,
+    received_at: receivedAt,
+    age_minutes: receivedAt ? Math.round((now() - receivedAt) / 60000) : 0,
     price_info: priceInfo,
     price_error: priceError,
   };
 });
+
+/* ---- ghi so giao dich chung khoan ---- */
+
+route("GET", "/api/stock/types", () => ({ types: txTypes() }));
+
+route("POST", "/api/stock/tx", (ctx) => appendTx(ctx.userId, ctx.body));
+
+route("POST", "/api/stock/undo", (ctx) => undoLast(ctx.userId, ctx.body.reason));
+
+route("GET", "/api/stock/history", (ctx) => ({
+  history: stockHistory(ctx.userId, ctx.query.limit),
+  realized: realizedTrades(ctx.userId),
+}));
 
 /* ---- so giao dich chung khoan (giai doan di tru) ---- */
 

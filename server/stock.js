@@ -138,3 +138,126 @@ export function positions(userId) {
     tx_count: loadTxs(userId).length,
   };
 }
+
+/* ============================ Ghi sổ ============================ */
+
+const TX_TYPES = {
+  BUY: { needs: ["symbol", "qty", "priceVND"], label: "Mua" },
+  SELL: { needs: ["symbol", "qty", "priceVND"], label: "Bán" },
+  DEPOSIT: { needs: ["cash"], label: "Nạp tiền" },
+  WITHDRAW: { needs: ["cash"], label: "Rút tiền" },
+  INIT_CASH: { needs: ["cash"], label: "Khởi tạo" },
+  DIVIDEND_CASH: { needs: ["cash"], label: "Cổ tức tiền" },
+  INTEREST: { needs: ["cash"], label: "Lãi/phí margin" },
+  ADJUSTMENT: { needs: ["cash"], label: "Điều chỉnh" },
+  STOCK_BONUS: { needs: ["symbol", "qty"], label: "Cổ phiếu thưởng" },
+};
+
+export const txTypes = () =>
+  Object.entries(TX_TYPES).map(([id, v]) => ({ id, label: v.label, needs: v.needs }));
+
+const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
+
+function nextSeq(userId) {
+  const r = q.get("SELECT COALESCE(MAX(seq),0) AS m FROM stock_tx WHERE user_id=?", userId);
+  return r.m + 1;
+}
+
+/**
+ * Thêm giao dịch. Trước khi ghi, dựng thử toàn bộ sổ kèm giao dịch mới:
+ * nếu engine báo lỗi (ví dụ bán nhiều hơn số đang giữ) thì TỪ CHỐI, không ghi.
+ * Nhờ vậy sổ trong database không bao giờ ở trạng thái hỏng.
+ */
+export function appendTx(userId, input) {
+  const type = String(input.type || "").toUpperCase();
+  const spec = TX_TYPES[type];
+  if (!spec) throw new Error("Loại giao dịch không hợp lệ");
+  if (!isDate(input.date)) throw new Error("Ngày không hợp lệ");
+
+  const tx = { type, date: input.date };
+
+  if (spec.needs.includes("symbol")) {
+    const sym = String(input.symbol || "").trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(sym)) throw new Error("Mã chứng khoán phải đúng 3 chữ cái");
+    tx.symbol = sym;
+  }
+  if (spec.needs.includes("qty")) {
+    const qty = Math.round(Number(input.qty) || 0);
+    if (qty <= 0) throw new Error("Số lượng phải lớn hơn 0");
+    tx.qty = qty;
+  }
+  if (spec.needs.includes("priceVND")) {
+    const price = Number(input.priceVND) || 0;
+    if (price <= 0) throw new Error("Giá phải lớn hơn 0");
+    if (price < 100) throw new Error("Giá phải nhập theo đồng, ví dụ 25900 chứ không phải 25,9");
+    tx.priceVND = price;
+  }
+  if (spec.needs.includes("cash")) {
+    const cash = Math.round(Number(input.cash) || 0);
+    if (cash === 0) throw new Error("Số tiền phải khác 0");
+    if (["DEPOSIT", "WITHDRAW"].includes(type) && cash < 0) {
+      throw new Error("Nhập số dương, loại giao dịch đã quyết định dấu");
+    }
+    tx.cash = cash;
+  }
+  if (input.note) tx.note = String(input.note).slice(0, 200);
+
+  if (type === "INIT_CASH" && loadTxs(userId).some((t) => t.type === "INIT_CASH")) {
+    throw new Error("Sổ đã có giao dịch khởi tạo, dùng Điều chỉnh nếu cần sửa số dư");
+  }
+
+  const seq = nextSeq(userId);
+  const full = { id: `tx${String(seq).padStart(4, "0")}`, seq, ...tx };
+
+  // Dung thu truoc khi ghi that.
+  const trial = rebuild([...loadTxs(userId), full]);
+  if (trial.error) throw new Error(trial.error);
+
+  insertTx(userId, full);
+  return { tx: full, state: summarize(trial) };
+}
+
+/** Hủy giao dịch cuối. Không xóa — chuyển sang trạng thái đã hủy, giống portfolio-bot. */
+export function undoLast(userId, reason = "nguoi dung huy") {
+  const last = q.get(
+    "SELECT id, raw FROM stock_tx WHERE user_id=? AND voided=0 ORDER BY seq DESC LIMIT 1",
+    userId
+  );
+  if (!last) throw new Error("Không còn giao dịch nào để hủy");
+  q.run(
+    "UPDATE stock_tx SET voided=1, voided_at=?, void_reason=? WHERE user_id=? AND id=?",
+    new Date().toISOString(), String(reason).slice(0, 200), userId, last.id
+  );
+  return { undone: JSON.parse(last.raw), state: summarize(state(userId)) };
+}
+
+function summarize(st) {
+  return {
+    cash: st.cash,
+    positions: Object.fromEntries(
+      Object.entries(st.positions).map(([k, v]) => [k, { qty: v.qty, cost_total: v.costTotal }])
+    ),
+    realized_pl: (st.realized || []).reduce((s, r) => s + r.pl, 0),
+    error: st.error || null,
+  };
+}
+
+/** Lịch sử giao dịch, mới nhất trước. */
+export function history(userId, limit = 200) {
+  const rows = q.all(
+    `SELECT id, seq, type, date, symbol, qty, price_vnd, cash, note, voided, voided_at
+     FROM stock_tx WHERE user_id=? ORDER BY seq DESC LIMIT ?`,
+    userId, Math.min(Number(limit) || 200, 1000)
+  );
+  return rows.map((r) => ({
+    ...r,
+    label: (TX_TYPES[r.type] || {}).label || r.type,
+    voided: Boolean(r.voided),
+  }));
+}
+
+/** Các lần bán đã chốt lãi lỗ, kèm chi tiết khớp FIFO. */
+export function realizedTrades(userId) {
+  const st = state(userId);
+  return (st.realized || []).slice().reverse();
+}
