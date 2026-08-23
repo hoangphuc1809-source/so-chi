@@ -594,8 +594,8 @@ const server = http.createServer(async (req, res) => {
   const fromLocal = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
   if (PROXY_SECRET && !fromLocal) {
     const given = req.headers["x-sochi-proxy"];
-    const a = Buffer.from(String(given || ""));
-    const b = Buffer.from(PROXY_SECRET);
+    const a = Buffer.from(String(given || "").trim());
+    const b = Buffer.from(PROXY_SECRET.trim());
     const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
     if (!ok) {
       res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
