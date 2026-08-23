@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,7 @@ const PUBLIC = path.join(__dirname, "..", "public");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const ALLOW_REGISTER = process.env.ALLOW_REGISTER === "1";
+const PROXY_SECRET = process.env.PROXY_SECRET || "";
 
 /* ============================ tiện ích ============================ */
 
@@ -586,6 +588,20 @@ const server = http.createServer(async (req, res) => {
 
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
+
+  // Chi chap nhan request di qua Cloudflare Worker (co header bi mat),
+  // hoac request tu chinh may chu (health check, curl khi debug).
+  const fromLocal = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+  if (PROXY_SECRET && !fromLocal) {
+    const given = req.headers["x-sochi-proxy"];
+    const a = Buffer.from(String(given || ""));
+    const b = Buffer.from(PROXY_SECRET);
+    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!ok) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end("Truy cap phai di qua proxy");
+    }
+  }
 
   if (!urlPath.startsWith("/api/")) return serveStatic(req, res, urlPath);
 
