@@ -3447,7 +3447,21 @@ function Settings({
   }, "Đang đăng nhập: ", React.createElement("b", null, data.user.username)), React.createElement(Button, {
     kind: "danger",
     onClick: onLogout
-  }, "Đăng xuất"))));
+  }, "Đăng xuất"))), React.createElement("section", {
+    style: {
+      marginTop: 28,
+      paddingTop: 20,
+      borderTop: `1px solid ${cssVar("--line")}`
+    }
+  }, React.createElement("div", {
+    className: "num label",
+    style: {
+      color: cssVar("--red")
+    }
+  }, "Vùng nguy hiểm"), React.createElement(ResetData, {
+    flash: flash,
+    reload: reload
+  })));
 }
 const TABS = [{
   id: "home",
@@ -3727,3 +3741,195 @@ function App() {
   }));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
+const RESET_SCOPES = [{
+  id: "all",
+  label: "Toàn bộ",
+  desc: "Chi tiêu, hóa đơn, thẻ, sổ chứng khoán, danh mục. Danh mục quay về mặc định."
+}, {
+  id: "spending",
+  label: "Chỉ chi tiêu",
+  desc: "Khoản chi, hóa đơn, thẻ tín dụng. Giữ nguyên sổ chứng khoán."
+}, {
+  id: "stock",
+  label: "Chỉ chứng khoán",
+  desc: "Sổ giao dịch chứng khoán. Giữ nguyên phần chi tiêu."
+}];
+function ResetData({
+  flash,
+  reload
+}) {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState("all");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [backedUp, setBackedUp] = useState(false);
+  const [err, setErr] = useState("");
+  const spec = RESET_SCOPES.find(r => r.id === scope);
+  const backup = async () => {
+    try {
+      const res = await api("/export.json", {
+        raw: true
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `so-chi-sao-luu-${todayISO()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackedUp(true);
+      flash("Đã tải file sao lưu về máy");
+    } catch (e) {
+      flash("Không tải được sao lưu: " + e.message);
+    }
+  };
+  const wipe = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api("/reset", {
+        method: "POST",
+        body: {
+          password,
+          scope
+        }
+      });
+      const n = Object.values(r.deleted).reduce((a, b) => a + b, 0);
+      flash(`Đã xóa ${n} bản ghi`);
+      setOpen(false);
+      setPassword("");
+      setBackedUp(false);
+      reload();
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return React.createElement("div", {
+      style: {
+        marginTop: 12
+      }
+    }, React.createElement("button", {
+      onClick: () => setOpen(true),
+      style: {
+        fontSize: 14,
+        fontWeight: 500,
+        color: cssVar("--red"),
+        border: `1px solid ${cssVar("--red")}`,
+        borderRadius: 99,
+        padding: "10px 18px"
+      }
+    }, "Xóa sạch dữ liệu"), React.createElement("p", {
+      style: {
+        fontSize: 12,
+        color: cssVar("--muted"),
+        marginTop: 10,
+        lineHeight: 1.6
+      }
+    }, "Đưa app về trạng thái mới hoàn toàn. Tài khoản đăng nhập vẫn giữ nguyên."));
+  }
+  return React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 16,
+      marginTop: 12,
+      borderColor: cssVar("--red")
+    }
+  }, React.createElement(Field, {
+    label: "Xóa phần nào"
+  }, React.createElement(Chips, {
+    options: RESET_SCOPES.map(r => ({
+      id: r.id,
+      label: r.label
+    })),
+    value: scope,
+    onChange: v => {
+      setScope(v);
+      setBackedUp(false);
+    }
+  }), React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 10,
+      lineHeight: 1.6
+    }
+  }, spec.desc)), React.createElement("div", {
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "between",
+    style: {
+      marginBottom: 8
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted")
+    }
+  }, "Bước 1 — sao lưu"), backedUp && React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--green")
+    }
+  }, "đã tải về")), React.createElement(Button, {
+    kind: "outline",
+    onClick: backup,
+    style: {
+      width: "100%"
+    }
+  }, backedUp ? "Tải lại file sao lưu" : "Tải file sao lưu về máy"), React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 8,
+      lineHeight: 1.6
+    }
+  }, "Xóa xong là không khôi phục được. Nên tải file này trước, phòng khi bấm nhầm.")), React.createElement(Field, {
+    label: "Bước 2 — nhập mật khẩu đăng nhập để xác nhận"
+  }, React.createElement("input", {
+    className: "field",
+    type: "password",
+    value: password,
+    autoComplete: "current-password",
+    placeholder: "mật khẩu của bạn",
+    onChange: e => {
+      setPassword(e.target.value);
+      setErr("");
+    },
+    onKeyDown: e => e.key === "Enter" && password && wipe()
+  })), err && React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: cssVar("--red"),
+      marginBottom: 14
+    }
+  }, err), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 12
+    }
+  }, React.createElement(Button, {
+    kind: "ghost",
+    onClick: () => {
+      setOpen(false);
+      setPassword("");
+      setErr("");
+    }
+  }, "Hủy"), React.createElement("button", {
+    onClick: wipe,
+    disabled: busy || !password,
+    style: {
+      flex: 1,
+      padding: "12px 0",
+      borderRadius: 99,
+      fontSize: 15,
+      fontWeight: 600,
+      color: "#fff",
+      background: busy || !password ? cssVar("--track") : cssVar("--red"),
+      cursor: busy || !password ? "not-allowed" : "pointer"
+    }
+  }, busy ? "Đang xóa…" : `Xóa ${spec.label.toLowerCase()}`)));
+}

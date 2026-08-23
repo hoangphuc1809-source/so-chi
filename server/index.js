@@ -3,8 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { q, uid, now } from "./db.js";
-import { createUser, login, verifyToken, userCount } from "./auth.js";
+import { q, uid, now, seedCategories } from "./db.js";
+import { createUser, login, verifyToken, userCount, verifyPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices } from "./prices.js";
@@ -629,6 +629,48 @@ route("PUT", "/api/settings", (ctx) => {
     );
   });
   return { ok: true };
+});
+
+/* ---- xóa sạch dữ liệu ---- */
+
+route("POST", "/api/reset", (ctx) => {
+  const user = q.get("SELECT * FROM users WHERE id=?", ctx.userId);
+  if (!user) throw httpError(404, "Không tìm thấy tài khoản");
+
+  // Bat buoc nhap lai mat khau: token co the con hieu luc tren mot thiet bi
+  // bi mat hoac muon, nen chi rieng token khong du de cho phep xoa het.
+  const password = String(ctx.body.password || "");
+  if (!password) throw httpError(400, "Cần nhập mật khẩu để xác nhận");
+  if (!verifyPassword(password, user.salt, user.pass_hash)) {
+    throw httpError(401, "Mật khẩu không đúng");
+  }
+
+  const scope = ["all", "spending", "stock"].includes(ctx.body.scope) ? ctx.body.scope : "all";
+  const u = ctx.userId;
+  const deleted = {};
+  const wipe = (table, label) => {
+    deleted[label] = q.run(`DELETE FROM ${table} WHERE user_id=?`, u).changes;
+  };
+
+  if (scope === "all" || scope === "spending") {
+    wipe("transactions", "khoan_chi");
+    wipe("bill_payments", "lan_tra_hoa_don");
+    wipe("bills", "hoa_don");
+    wipe("card_payments", "lan_tra_the");
+    wipe("cards", "the");
+  }
+  if (scope === "all" || scope === "stock") {
+    wipe("stock_tx", "giao_dich_chung_khoan");
+    wipe("portfolio_snapshot", "snapshot_danh_muc");
+  }
+  if (scope === "all") {
+    wipe("categories", "danh_muc");
+    wipe("settings", "cai_dat");
+    seedCategories(u); // dung lai danh muc mac dinh, app nhu moi
+  }
+
+  console.log(`[reset] ${user.username} xoa scope=${scope}:`, JSON.stringify(deleted));
+  return { ok: true, scope, deleted };
 });
 
 /* ---- xuất dữ liệu ---- */
