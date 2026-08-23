@@ -2356,11 +2356,13 @@ function Invest({
     className: "tape between",
     style: {
       padding: "10px 0",
+      alignItems: "flex-start",
       opacity: h.voided ? 0.45 : 1
     }
   }, React.createElement("span", {
     style: {
-      minWidth: 0
+      minWidth: 0,
+      flex: 1
     }
   }, React.createElement("span", {
     style: {
@@ -2383,19 +2385,29 @@ function Invest({
       fontSize: 11,
       color: cssVar("--muted")
     }
-  }, h.date, h.qty ? ` · ${nf.format(h.qty)} cp` : "", h.price_vnd ? ` · ${nf.format(h.price_vnd)}` : "", h.note ? ` · ${h.note}` : "")), React.createElement("span", {
+  }, h.date, h.qty ? ` · ${nf.format(h.qty)} cp` : "", h.price_vnd ? ` · ${nf.format(h.price_vnd)}` : "", h.note ? ` · ${h.note}` : ""), h.type === "INIT_CASH" && React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 2
+    }
+  }, "số dư khai lúc bắt đầu ghi sổ — các lệnh mua trước ngày này không trừ tiền lại")), React.createElement("span", {
     className: "num",
     style: {
-      fontSize: 13
+      fontSize: 13,
+      flexShrink: 0,
+      marginLeft: 12,
+      color: h.cash != null && h.cash < 0 ? cssVar("--red") : cssVar("--ink")
     }
-  }, h.cash != null ? money(h.cash) : h.qty && h.price_vnd ? short(h.qty * h.price_vnd) : "")))), !hist.history[0].voided && React.createElement("div", {
+  }, h.cash != null ? money(h.cash) : h.qty && h.price_vnd ? short(h.qty * h.price_vnd) : "")))), hist.undoable && React.createElement("div", {
     style: {
       marginTop: 12
     }
   }, React.createElement(UndoLast, {
     flash: flash,
     onDone: load,
-    last: hist.history[0]
+    last: hist.undoable
   }))), React.createElement("p", {
     style: {
       fontSize: 11,

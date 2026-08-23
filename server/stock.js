@@ -246,7 +246,8 @@ function summarize(st) {
 export function history(userId, limit = 200) {
   const rows = q.all(
     `SELECT id, seq, type, date, symbol, qty, price_vnd, cash, note, voided, voided_at
-     FROM stock_tx WHERE user_id=? ORDER BY seq DESC LIMIT ?`,
+     FROM stock_tx WHERE user_id=?
+     ORDER BY date DESC, seq DESC LIMIT ?`,
     userId, Math.min(Number(limit) || 200, 1000)
   );
   return rows.map((r) => ({

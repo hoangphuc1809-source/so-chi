@@ -209,8 +209,8 @@ function Invest({ flash }) {
           <div style={{ marginTop: 10 }}>
             {(showHist ? hist.history : hist.history.slice(0, 5)).map((h) => (
               <div key={h.id} className="tape between" style={{ padding: "10px 0",
-                opacity: h.voided ? 0.45 : 1 }}>
-                <span style={{ minWidth: 0 }}>
+                alignItems: "flex-start", opacity: h.voided ? 0.45 : 1 }}>
+                <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ fontSize: 13 }}>
                     {h.label}
                     {h.symbol && <span className="num" style={{ fontWeight: 600 }}> {h.symbol}</span>}
@@ -222,16 +222,22 @@ function Invest({ flash }) {
                     {h.price_vnd ? ` · ${nf.format(h.price_vnd)}` : ""}
                     {h.note ? ` · ${h.note}` : ""}
                   </span>
+                  {h.type === "INIT_CASH" && (
+                    <span style={{ display: "block", fontSize: 11, color: cssVar("--muted"), marginTop: 2 }}>
+                      số dư khai lúc bắt đầu ghi sổ — các lệnh mua trước ngày này không trừ tiền lại
+                    </span>
+                  )}
                 </span>
-                <span className="num" style={{ fontSize: 13 }}>
+                <span className="num" style={{ fontSize: 13, flexShrink: 0, marginLeft: 12,
+                  color: h.cash != null && h.cash < 0 ? cssVar("--red") : cssVar("--ink") }}>
                   {h.cash != null ? money(h.cash) : h.qty && h.price_vnd ? short(h.qty * h.price_vnd) : ""}
                 </span>
               </div>
             ))}
           </div>
-          {!hist.history[0].voided && (
+          {hist.undoable && (
             <div style={{ marginTop: 12 }}>
-              <UndoLast flash={flash} onDone={load} last={hist.history[0]} />
+              <UndoLast flash={flash} onDone={load} last={hist.undoable} />
             </div>
           )}
         </section>
