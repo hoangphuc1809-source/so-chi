@@ -1,0 +1,14 @@
+[Unit]
+Description=So Chi - nhac han hoa don va the
+
+[Service]
+Type=oneshot
+User=hoang
+WorkingDirectory=/home/hoang/so-chi
+EnvironmentFile=/home/hoang/so-chi/.env
+ExecStart=/usr/bin/node --max-old-space-size=64 scripts/remind.js
+MemoryMax=120M
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hoang/sochi-data
+SyslogIdentifier=sochi-remind

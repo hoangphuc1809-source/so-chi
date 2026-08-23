@@ -1,0 +1,10 @@
+{
+  "name": "Sổ Chi",
+  "short_name": "Sổ Chi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAFAF7",
+  "theme_color": "#FAFAF7",
+  "lang": "vi"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "so-chi",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "App quan ly chi tieu ca nhan - khong phu thuoc npm package nao",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node server/index.js",
+    "remind": "node scripts/remind.js",
+    "build": "node build.js"
+  }
+}

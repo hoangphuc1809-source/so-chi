@@ -1,0 +1,10 @@
+[Unit]
+Description=Nhac han hoa don moi sang 08:00 gio Viet Nam
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

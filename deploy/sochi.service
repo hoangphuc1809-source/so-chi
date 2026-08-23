@@ -1,0 +1,36 @@
+[Unit]
+Description=So Chi - app quan ly chi tieu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hoang
+WorkingDirectory=/home/hoang/so-chi
+EnvironmentFile=/home/hoang/so-chi/.env
+ExecStart=/usr/bin/node --max-old-space-size=96 server/index.js
+Restart=always
+RestartSec=5
+
+# Chan tuyet doi: neu app ro ri bo nho, kernel giet app nay
+# chu KHONG dung toi hai profile Hermes cua gia dinh.
+MemoryMax=180M
+MemoryHigh=140M
+OOMScoreAdjust=500
+CPUWeight=50
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hoang/sochi-data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sochi
+
+[Install]
+WantedBy=multi-user.target
