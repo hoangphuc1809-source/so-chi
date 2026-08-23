@@ -8,6 +8,7 @@ import { createUser, login, verifyToken, userCount } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices } from "./prices.js";
+import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -543,6 +544,45 @@ route("GET", "/api/portfolio", async (ctx) => {
     age_minutes: Math.round((now() - row.received_at) / 60000),
     price_info: priceInfo,
     price_error: priceError,
+  };
+});
+
+/* ---- so giao dich chung khoan (giai doan di tru) ---- */
+
+function checkPushToken(ctx) {
+  if (!PORTFOLIO_PUSH_TOKEN) throw httpError(503, "Máy chủ chưa bật luồng nhận danh mục");
+  const given = String(ctx.req.headers["x-sochi-push"] || "").trim();
+  const a = Buffer.from(given);
+  const b = Buffer.from(PORTFOLIO_PUSH_TOKEN.trim());
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    throw httpError(401, "Token đẩy không đúng");
+  }
+  const owner = PORTFOLIO_USER
+    ? q.get("SELECT id FROM users WHERE username = ?", PORTFOLIO_USER.toLowerCase())
+    : q.get("SELECT id FROM users ORDER BY created_at LIMIT 1");
+  if (!owner) throw httpError(404, "Chưa có tài khoản nào");
+  return owner.id;
+}
+
+route("POST", "/api/stock/import", (ctx) => {
+  const userId = checkPushToken(ctx);
+  const res = importLedger(userId, ctx.body);
+  // Doi chieu ngay trong cung mot lan goi: ben gateway gui kem ket qua rebuild
+  // cua chinh no, tinh tren file goc bang engine goc.
+  const check = ctx.body.expected ? reconcile(userId, ctx.body.expected) : null;
+  return { ...res, doi_chieu: check };
+}, { auth: false });
+
+route("GET", "/api/stock/reconcile", (ctx) => {
+  const st = stockState(ctx.userId);
+  return {
+    so_giao_dich: loadTxs(ctx.userId).length,
+    tien_mat: st.cash,
+    vi_the: Object.fromEntries(
+      Object.entries(st.positions).map(([k, v]) => [k, { qty: v.qty, cost_total: v.costTotal }])
+    ),
+    lai_da_thuc_hien: (st.realized || []).reduce((s, r) => s + r.pl, 0),
+    loi: st.error || null,
   };
 });
 

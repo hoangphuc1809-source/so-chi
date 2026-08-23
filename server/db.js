@@ -109,6 +109,29 @@ CREATE TABLE IF NOT EXISTS settings (
   PRIMARY KEY (user_id, key)
 );
 
+-- So giao dich chung khoan: APPEND-ONLY, giong het triet ly cua portfolio-bot.
+-- Cot raw giu nguyen van object JSON goc de rebuild() nhan dung dau vao
+-- nhu ban chay tren gateway -> doi chieu moi co y nghia.
+CREATE TABLE IF NOT EXISTS stock_tx (
+  id          TEXT NOT NULL,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  type        TEXT NOT NULL,
+  date        TEXT NOT NULL,
+  symbol      TEXT,
+  qty         INTEGER,
+  price_vnd   REAL,
+  cash        INTEGER,
+  note        TEXT,
+  raw         TEXT NOT NULL,
+  voided      INTEGER NOT NULL DEFAULT 0,
+  voided_at   TEXT,
+  void_reason TEXT,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_tx_user ON stock_tx(user_id, date, seq);
+
 CREATE TABLE IF NOT EXISTS portfolio_snapshot (
   user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   payload     TEXT NOT NULL,
