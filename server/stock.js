@@ -1,5 +1,5 @@
 import { q, uid, now } from "./db.js";
-import { rebuild } from "./ledger.js";
+import { rebuild, settleDate } from "./ledger.js";
 
 /** Lấy đúng mảng giao dịch (chưa hủy) để đưa vào rebuild — nguyên văn object gốc. */
 export function loadTxs(userId) {
@@ -115,18 +115,34 @@ export function reconcile(userId, expected) {
 export function positions(userId) {
   const st = state(userId);
   if (st.error) return { error: st.error };
-  const list = Object.entries(st.positions).map(([symbol, p]) => ({
-    symbol,
-    qty: p.qty,
-    avg_cost: Math.round(p.avgCostVND),
-    cost_total: p.costTotal,
-    market_price: null,
-    market_value: null,
-    pl: null,
-    pl_pct: null,
-    lots: p.lots.length,
-    oldest_lot: p.lots.length ? p.lots[0].date : null,
-  }));
+  const today = new Date().toISOString().slice(0, 10);
+
+  const list = Object.entries(st.positions).map(([symbol, p]) => {
+    // CP mua xong phai cho ve tai khoan (T+2) moi ban duoc.
+    // Tinh theo tung lo vi cac lo mua khac ngay se ve khac ngay.
+    let sellable = 0;
+    const pending = [];
+    for (const lot of p.lots) {
+      const settle = settleDate(lot.date);
+      if (settle <= today) sellable += lot.remaining;
+      else pending.push({ qty: lot.remaining, buy_date: lot.date, settle_date: settle });
+    }
+    return {
+      symbol,
+      qty: p.qty,
+      sellable,
+      pending_qty: p.qty - sellable,
+      pending,
+      avg_cost: Math.round(p.avgCostVND),
+      cost_total: p.costTotal,
+      market_price: null,
+      market_value: null,
+      pl: null,
+      pl_pct: null,
+      lots: p.lots.length,
+      oldest_lot: p.lots.length ? p.lots[0].date : null,
+    };
+  });
   return {
     ok: true,
     source: "sochi",
@@ -243,12 +259,12 @@ function summarize(st) {
 }
 
 /** Lịch sử giao dịch, mới nhất trước. */
-export function history(userId, limit = 200) {
+export function history(userId, limit = 200, includeVoided = false) {
   const rows = q.all(
     `SELECT id, seq, type, date, symbol, qty, price_vnd, cash, note, voided, voided_at
-     FROM stock_tx WHERE user_id=?
+     FROM stock_tx WHERE user_id=? AND (voided=0 OR ?=1)
      ORDER BY date DESC, seq DESC LIMIT ?`,
-    userId, Math.min(Number(limit) || 200, 1000)
+    userId, includeVoided ? 1 : 0, Math.min(Number(limit) || 200, 1000)
   );
   return rows.map((r) => ({
     ...r,

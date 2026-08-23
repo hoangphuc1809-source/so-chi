@@ -2033,14 +2033,15 @@ function Invest({
   const [trade, setTrade] = useState(null);
   const [hist, setHist] = useState(null);
   const [showHist, setShowHist] = useState(false);
+  const [showVoided, setShowVoided] = useState(false);
   const load = useCallback(() => {
     setBusy(true);
     api("/portfolio").then(d => {
       setData(d);
       setErr("");
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
-    api("/stock/history?limit=100").then(setHist).catch(() => {});
-  }, []);
+    api(`/stock/history?limit=200${showVoided ? "&voided=1" : ""}`).then(setHist).catch(() => {});
+  }, [showVoided]);
   useEffect(load, [load]);
   useEffect(() => {
     if (!data || !data.price_info || !data.price_info.market_open) return;
@@ -2136,14 +2137,7 @@ function Invest({
       letterSpacing: "-.02em",
       marginTop: 3
     }
-  }, s.nav != null ? money(s.nav) : "—"), !s.degraded && React.createElement("div", {
-    className: "num",
-    style: {
-      fontSize: 12,
-      marginTop: 4,
-      color: plColor(s.unrealized_pl)
-    }
-  }, sign(s.unrealized_pl), money(s.unrealized_pl), " chưa thực hiện", s.unrealized_pct != null && ` (${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}%)`), React.createElement("div", {
+  }, s.nav != null ? money(s.nav) : "—"), React.createElement("div", {
     className: "num",
     style: {
       fontSize: 11,
@@ -2168,6 +2162,61 @@ function Invest({
       fontSize: 11
     }
   }, "tải lại"))), React.createElement("section", {
+    className: "grid2",
+    style: {
+      marginBottom: 12
+    }
+  }, React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Lãi/lỗ tạm tính"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 18,
+      fontWeight: 600,
+      marginTop: 3,
+      color: plColor(s.unrealized_pl)
+    }
+  }, s.unrealized_pl != null ? `${sign(s.unrealized_pl)}${short(s.unrealized_pl)}` : "—"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 2
+    }
+  }, s.unrealized_pct != null ? `${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}% · chưa bán` : "chưa có giá")), React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Lãi/lỗ đã chốt"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 18,
+      fontWeight: 600,
+      marginTop: 3,
+      color: plColor(s.realized_pl)
+    }
+  }, s.realized_pl ? `${sign(s.realized_pl)}${short(s.realized_pl)}` : "0"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 2
+    }
+  }, hist && hist.realized ? `${hist.realized.length} lần bán` : "đã bán"))), React.createElement("section", {
     className: "grid2",
     style: {
       marginBottom: 24
@@ -2277,7 +2326,21 @@ function Invest({
     style: {
       color: plColor(p.day_change)
     }
-  }, " ", "(", sign(p.day_change_pct), p.day_change_pct.toFixed(2), "% hôm nay)")), React.createElement("span", null, p.weight != null ? `${p.weight.toFixed(1)}%` : "")), p.weight != null && React.createElement("div", {
+  }, " ", "(", sign(p.day_change_pct), p.day_change_pct.toFixed(2), "% hôm nay)")), React.createElement("span", null, p.weight != null ? `${p.weight.toFixed(1)}%` : "")), p.pending_qty > 0 ? React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      marginTop: 4,
+      color: cssVar("--amber")
+    }
+  }, "bán được ", nf.format(p.sellable), " cp · còn ", nf.format(p.pending_qty), " cp chờ về", p.pending && p.pending[0] ? ` ngày ${p.pending[0].settle_date}` : "") : React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      marginTop: 4,
+      color: cssVar("--green")
+    }
+  }, "đã về tài khoản, bán được toàn bộ"), p.weight != null && React.createElement("div", {
     style: {
       marginTop: 7
     }
@@ -2408,7 +2471,17 @@ function Invest({
     flash: flash,
     onDone: load,
     last: hist.undoable
-  }))), React.createElement("p", {
+  })), hist.voided_count > 0 && React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, React.createElement("button", {
+    onClick: () => setShowVoided(!showVoided),
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted")
+    }
+  }, showVoided ? "ẩn giao dịch đã hủy" : `hiện ${hist.voided_count} giao dịch đã hủy`))), React.createElement("p", {
     style: {
       fontSize: 11,
       color: cssVar("--muted"),

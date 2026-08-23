@@ -19,6 +19,7 @@ function Invest({ flash }) {
   const [trade, setTrade] = useState(null);
   const [hist, setHist] = useState(null);
   const [showHist, setShowHist] = useState(false);
+  const [showVoided, setShowVoided] = useState(false);
 
   const load = useCallback(() => {
     setBusy(true);
@@ -26,8 +27,8 @@ function Invest({ flash }) {
       .then((d) => { setData(d); setErr(""); })
       .catch((e) => setErr(e.message))
       .finally(() => setBusy(false));
-    api("/stock/history?limit=100").then(setHist).catch(() => {});
-  }, []);
+    api(`/stock/history?limit=200${showVoided ? "&voided=1" : ""}`).then(setHist).catch(() => {});
+  }, [showVoided]);
 
   useEffect(load, [load]);
 
@@ -85,12 +86,6 @@ function Invest({ flash }) {
         <div className="num" style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.02em", marginTop: 3 }}>
           {s.nav != null ? money(s.nav) : "—"}
         </div>
-        {!s.degraded && (
-          <div className="num" style={{ fontSize: 12, marginTop: 4, color: plColor(s.unrealized_pl) }}>
-            {sign(s.unrealized_pl)}{money(s.unrealized_pl)} chưa thực hiện
-            {s.unrealized_pct != null && ` (${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}%)`}
-          </div>
-        )}
         <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 6 }}>
           {s.live_prices ? (
             <span style={{ color: cssVar("--green") }}>
@@ -105,6 +100,29 @@ function Invest({ flash }) {
           {"  ·  vị thế "}{data.age_minutes < 1 ? "vừa cập nhật" : `cập nhật ${data.age_minutes} phút trước`}
           {"  ·  "}
           <button onClick={load} style={{ color: cssVar("--blue"), fontSize: 11 }}>tải lại</button>
+        </div>
+      </section>
+
+      <section className="grid2" style={{ marginBottom: 12 }}>
+        <div className="box" style={{ padding: 14 }}>
+          <div style={{ fontSize: 11, color: cssVar("--muted") }}>Lãi/lỗ tạm tính</div>
+          <div className="num" style={{ fontSize: 18, fontWeight: 600, marginTop: 3,
+            color: plColor(s.unrealized_pl) }}>
+            {s.unrealized_pl != null ? `${sign(s.unrealized_pl)}${short(s.unrealized_pl)}` : "—"}
+          </div>
+          <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 2 }}>
+            {s.unrealized_pct != null ? `${sign(s.unrealized_pct)}${s.unrealized_pct.toFixed(2)}% · chưa bán` : "chưa có giá"}
+          </div>
+        </div>
+        <div className="box" style={{ padding: 14 }}>
+          <div style={{ fontSize: 11, color: cssVar("--muted") }}>Lãi/lỗ đã chốt</div>
+          <div className="num" style={{ fontSize: 18, fontWeight: 600, marginTop: 3,
+            color: plColor(s.realized_pl) }}>
+            {s.realized_pl ? `${sign(s.realized_pl)}${short(s.realized_pl)}` : "0"}
+          </div>
+          <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 2 }}>
+            {hist && hist.realized ? `${hist.realized.length} lần bán` : "đã bán"}
+          </div>
         </div>
       </section>
 
@@ -163,6 +181,16 @@ function Invest({ flash }) {
               </span>
               <span>{p.weight != null ? `${p.weight.toFixed(1)}%` : ""}</span>
             </div>
+            {p.pending_qty > 0 ? (
+              <div className="num" style={{ fontSize: 11, marginTop: 4, color: cssVar("--amber") }}>
+                bán được {nf.format(p.sellable)} cp · còn {nf.format(p.pending_qty)} cp chờ về
+                {p.pending && p.pending[0] ? ` ngày ${p.pending[0].settle_date}` : ""}
+              </div>
+            ) : (
+              <div className="num" style={{ fontSize: 11, marginTop: 4, color: cssVar("--green") }}>
+                đã về tài khoản, bán được toàn bộ
+              </div>
+            )}
             {p.weight != null && (
               <div style={{ marginTop: 7 }}>
                 <Bar value={p.weight} max={100} color={p.weight > 40 ? cssVar("--amber") : cssVar("--blue")} height={3} />
@@ -238,6 +266,16 @@ function Invest({ flash }) {
           {hist.undoable && (
             <div style={{ marginTop: 12 }}>
               <UndoLast flash={flash} onDone={load} last={hist.undoable} />
+            </div>
+          )}
+          {hist.voided_count > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <button onClick={() => setShowVoided(!showVoided)}
+                style={{ fontSize: 12, color: cssVar("--muted") }}>
+                {showVoided
+                  ? "ẩn giao dịch đã hủy"
+                  : `hiện ${hist.voided_count} giao dịch đã hủy`}
+              </button>
             </div>
           )}
         </section>

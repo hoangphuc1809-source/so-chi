@@ -571,11 +571,13 @@ route("POST", "/api/stock/tx", (ctx) => appendTx(ctx.userId, ctx.body));
 route("POST", "/api/stock/undo", (ctx) => undoLast(ctx.userId, ctx.body.reason));
 
 route("GET", "/api/stock/history", (ctx) => {
-  const h = stockHistory(ctx.userId, ctx.query.limit);
+  const h = stockHistory(ctx.userId, ctx.query.limit, ctx.query.voided === "1");
   // Danh sach sap theo ngay cho de doc, nhung "giao dich cuoi" de huy phai la
   // ban ghi moi nhat theo THU TU NHAP - dung cai ma undoLast() se xoa.
   const undoable = h.filter((x) => !x.voided).sort((a, b) => b.seq - a.seq)[0] || null;
-  return { history: h, realized: realizedTrades(ctx.userId), undoable };
+  const voidedCount = q.get(
+    "SELECT COUNT(*) AS n FROM stock_tx WHERE user_id=? AND voided=1", ctx.userId).n;
+  return { history: h, realized: realizedTrades(ctx.userId), undoable, voided_count: voidedCount };
 });
 
 /* ---- so giao dich chung khoan (giai doan di tru) ---- */

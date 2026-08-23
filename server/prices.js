@@ -99,6 +99,7 @@ export function applyLivePrices(snapshot, live) {
     const q = live[p.symbol];
     if (!q) return { ...p, price_live: false };
     const marketValue = Math.round(q.price * p.qty);
+    const sellableValue = Math.round(q.price * (p.sellable || 0));
     const pl = marketValue - p.cost_total;
     return {
       ...p,
@@ -106,6 +107,7 @@ export function applyLivePrices(snapshot, live) {
       market_value: marketValue,
       pl,
       pl_pct: p.cost_total > 0 ? (pl / p.cost_total) * 100 : null,
+      sellable_value: sellableValue,
       day_change: q.change,
       day_change_pct: q.change_pct,
       price_source: q.source,
