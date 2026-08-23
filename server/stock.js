@@ -124,8 +124,9 @@ export function positions(userId) {
     const pending = [];
     for (const lot of p.lots) {
       const settle = settleDate(lot.date);
-      if (settle <= today) sellable += lot.remaining;
-      else pending.push({ qty: lot.remaining, buy_date: lot.date, settle_date: settle });
+      // rebuild() doi ten khi tra ve: trong queue la `remaining`, ra ngoai la `qty`.
+      if (settle <= today) sellable += lot.qty;
+      else pending.push({ qty: lot.qty, buy_date: lot.date, settle_date: settle });
     }
     return {
       symbol,
