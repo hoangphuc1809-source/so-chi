@@ -8,7 +8,7 @@ import { createUser, login, verifyToken, userCount, verifyPassword } from "./aut
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices } from "./prices.js";
-import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs,
+import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
          appendTx, undoLast, history as stockHistory, realizedTrades, txTypes } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -604,6 +604,24 @@ route("POST", "/api/stock/import", (ctx) => {
   // cua chinh no, tinh tren file goc bang engine goc.
   const check = ctx.body.expected ? reconcile(userId, ctx.body.expected) : null;
   return { ...res, doi_chieu: check };
+}, { auth: false });
+
+/**
+ * Xuat so giao dich tho cho portfolio-bot doc.
+ *
+ * Bot dung engine FIFO cua chinh no de dung lai trang thai, nen o day chi tra
+ * ve dung mang giao dich goc - khong tinh toan gi. App la nguon su that duy
+ * nhat; bot chi con la mot cua so nhin vao.
+ *
+ * Xac thuc bang token day (nhu /api/stock/import), khong doi dang nhap.
+ */
+route("GET", "/api/stock/export", (ctx) => {
+  const userId = checkPushToken(ctx);
+  return {
+    transactions: loadTxs(userId),
+    voided: loadVoided(userId),
+    served_at: new Date().toISOString(),
+  };
 }, { auth: false });
 
 route("GET", "/api/stock/reconcile", (ctx) => {
