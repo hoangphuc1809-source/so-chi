@@ -665,7 +665,10 @@ export function checkAlerts(userId, prices = {}) {
   for (const a of getAlerts(userId)) {
     const pos = st.positions[a.symbol];
     if (!pos) continue;
-    const px = prices[a.symbol];
+    // prices[sym] là object {price, ref, ...}, không phải con số. So thẳng
+    // object với ngưỡng thì mọi so sánh ra false và cảnh báo không bao giờ bắn.
+    const px = prices[a.symbol] && typeof prices[a.symbol] === "object"
+      ? prices[a.symbol].price : prices[a.symbol];
     if (!px) continue;
     if (a.stop && px <= a.stop) {
       hits.push({ symbol: a.symbol, loai: "cat_lo", moc: a.stop, gia: px, qty: pos.qty, note: a.note });

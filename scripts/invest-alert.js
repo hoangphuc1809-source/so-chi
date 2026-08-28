@@ -52,7 +52,11 @@ function alertLines(userId, st, prices) {
   for (const a of getAlerts(userId)) {
     const pos = st.positions[a.symbol];
     if (!pos) continue;                    // đã bán hết thì mốc không còn nghĩa
-    const px = prices[a.symbol];
+
+    // fetchPrices trả về object mỗi mã, không phải con số. So thẳng object với
+    // ngưỡng thì mọi phép so sánh đều ra false và cảnh báo im lặng không bao
+    // giờ bắn — đúng loại lỗi tệ nhất cho một cảnh báo.
+    const px = prices[a.symbol] ? prices[a.symbol].price : null;
     if (!px) continue;
 
     if (a.stop && px <= a.stop) {
