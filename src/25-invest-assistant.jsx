@@ -77,6 +77,8 @@ function Invest({ flash }) {
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginBottom: 8 }}>
+        <Button kind="outline" onClick={() => setTool("analysis")} style={{ padding: "6px 12px", fontSize: 12 }}>Phân tích</Button>
+        <Button kind="outline" onClick={() => setTool("events")} style={{ padding: "6px 12px", fontSize: 12 }}>Lịch quyền</Button>
         <Button kind="outline" onClick={() => setTool("report")} style={{ padding: "6px 12px", fontSize: 12 }}>Báo cáo</Button>
         <Button kind="outline" onClick={() => setTool("alerts")} style={{ padding: "6px 12px", fontSize: 12 }}>Mốc giá</Button>
         <Button kind="outline" onClick={() => setTool("reconcile")} style={{ padding: "6px 12px", fontSize: 12 }}>Đối chiếu</Button>
@@ -325,6 +327,8 @@ function Invest({ flash }) {
       )}
       {tool === "report" && <InvestReport onClose={() => setTool(null)} />}
       {tool === "alerts" && <PriceAlerts flash={flash} onClose={() => setTool(null)} />}
+      {tool === "analysis" && <InvestAnalysis flash={flash} onClose={() => setTool(null)} />}
+      {tool === "events" && <StockEvents flash={flash} onClose={() => setTool(null)} />}
     </div>
   );
 }

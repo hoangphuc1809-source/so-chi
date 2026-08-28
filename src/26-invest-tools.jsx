@@ -188,6 +188,25 @@ function BatchEntry({ onClose, onSaved, flash }) {
       .catch((e) => setErr(e.message)).finally(() => setBusy(false));
   };
 
+  const [tcbs, setTcbs] = useState("");
+  const [showTcbs, setShowTcbs] = useState(false);
+
+  // Doc tin nhan TCBS roi doi sang dinh dang lenh, KHONG ghi thang.
+  // Nguoi dung van xem truoc tung dong nhu moi lo khac.
+  const doTcbs = () => {
+    setBusy(true); setErr("");
+    api("/stock/tcbs/parse", { method: "POST", body: { text: tcbs } })
+      .then((d) => {
+        if (!d.doc_duoc) { setErr("Không đọc được dòng nào từ tin nhắn"); return; }
+        setText((t) => (t.trim() ? t.trim() + "\n" : "") + d.text);
+        setPrev(null); setShowTcbs(false);
+        const luuY = d.rows.filter((r) => r.ghi_chu);
+        flash(`Đọc được ${d.doc_duoc} lệnh${d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : ""}` +
+              (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
+      })
+      .catch((e) => setErr(e.message)).finally(() => setBusy(false));
+  };
+
   const ready = prev && prev.loi === 0 && !prev.loi_tong_the && prev.hop_le > 0;
 
   return (
@@ -209,6 +228,25 @@ THUONG CTS 500 20/08`}
             Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.
           </div>
         </div>
+
+        <Button kind="outline" onClick={() => setShowTcbs(!showTcbs)}
+          style={{ width: "100%", marginBottom: 12, fontSize: 12, padding: "8px" }}>
+          {showTcbs ? "Ẩn ô tin nhắn TCBS" : "Dán tin nhắn từ TCBS"}
+        </Button>
+
+        {showTcbs && (
+          <div style={{ marginBottom: 14 }}>
+            <textarea rows={4} value={tcbs} placeholder="Dán nguyên tin nhắn khớp lệnh từ TCBS…"
+              onChange={(e) => setTcbs(e.target.value)}
+              style={{ width: "100%", fontSize: 12, lineHeight: 1.6 }} />
+            <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6, margin: "8px 0" }}>
+              Chỉ lấy phần <b>đã khớp</b>, bỏ qua lệnh chờ và lệnh hủy. Số tài khoản trong tin nhắn
+              không được lưu lại. Đọc xong vẫn xem trước rồi mới ghi.
+            </div>
+            <Button kind="outline" onClick={doTcbs} disabled={busy || !tcbs.trim()}
+              style={{ width: "100%", fontSize: 12, padding: "8px" }}>Đọc tin nhắn</Button>
+          </div>
+        )}
 
         <textarea rows={8} value={text} placeholder="Dán hoặc gõ các lệnh vào đây…"
           onChange={(e) => { setText(e.target.value); setPrev(null); }}
@@ -435,6 +473,267 @@ function PriceAlerts({ onClose, flash }) {
               <Button onClick={save} disabled={busy} style={{ width: "100%" }}>
                 {busy ? "Đang lưu…" : "Lưu mốc"}
               </Button>
+            </div>
+          </Sheet>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * Phân tích danh mục: thời gian nắm giữ, lãi vay ước tính, phiên khối lượng lạ.
+ */
+function InvestAnalysis({ onClose, flash }) {
+  const [hold, setHold] = useState(null);
+  const [mi, setMi] = useState(null);
+  const [unusual, setUnusual] = useState(null);
+  const [rate, setRate] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    api("/stock/holding").then(setHold).catch(() => {});
+    api("/stock/margin-interest").then((d) => { setMi(d); setRate(String(d.lai_suat_nam)); }).catch(() => {});
+    api("/stock/unusual").then(setUnusual).catch((e) => setUnusual({ ok: false, error: e.message }));
+  }, []);
+  useEffect(load, [load]);
+
+  const saveRate = () => {
+    setSaving(true);
+    api("/stock/settings", { method: "POST", body: { margin_rate_year: Number(rate) } })
+      .then(() => { flash("Đã lưu lãi suất"); load(); })
+      .catch((e) => flash(e.message)).finally(() => setSaving(false));
+  };
+
+  const HUONG = {
+    ben_mua_manh: { t: "đóng cửa gần đỉnh ngày", c: "--green" },
+    ben_ban_manh: { t: "đóng cửa gần đáy ngày", c: "--red" },
+    khong_ro: { t: "đóng cửa giữa biên độ", c: "--muted" },
+  };
+
+  return (
+    <Sheet title="Phân tích danh mục" onClose={onClose}>
+      <div className="pad" style={{ paddingTop: 18 }}>
+
+        <div className="num label">Lãi vay margin ước tính</div>
+        {mi && (
+          <div className="box" style={{ padding: 14, marginTop: 8, marginBottom: 8 }}>
+            <div className="num" style={{ fontSize: 22, fontWeight: 700, color: cssVar("--red") }}>
+              {money(mi.uoc_tinh)}
+            </div>
+            <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 6, lineHeight: 1.7 }}>
+              {mi.tu_ngay} → {mi.den_ngay} · {mi.so_ngay_vay} ngày có dư nợ
+              <br />dư nợ cao nhất {short(mi.du_no_cao_nhat)} ngày {mi.ngay_du_no_cao_nhat}
+              {mi.moc_doi_chieu_truoc
+                ? <><br />tính từ mốc đối chiếu {mi.moc_doi_chieu_truoc}</>
+                : <><br />chưa có mốc đối chiếu nào, tính từ giao dịch đầu tiên</>}
+            </div>
+            <div className="between" style={{ marginTop: 12, gap: 8 }}>
+              <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
+                style={{ flex: 1 }} placeholder="14.6" />
+              <span style={{ fontSize: 12, color: cssVar("--muted") }}>%/năm</span>
+              <Button kind="outline" onClick={saveRate} disabled={saving}
+                style={{ padding: "6px 12px", fontSize: 12 }}>Lưu</Button>
+            </div>
+          </div>
+        )}
+        <p style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.7, marginTop: 0, marginBottom: 24 }}>
+          Đây là số <b>ước tính</b>, không phải số công ty chứng khoán thu. Lãi suất thay đổi theo gói,
+          lại còn phí ứng trước tiền bán và các khoản khác không nằm trong sổ. Số thật chỉ có khi
+          đối chiếu — con số này để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không.
+        </p>
+
+        <div className="num label">Thời gian nắm giữ</div>
+        <div style={{ marginTop: 8, marginBottom: 24 }}>
+          {hold && (hold.rows || []).map((r) => (
+            <div key={r.symbol} className="box" style={{ padding: 14, marginBottom: 10 }}>
+              <div className="between">
+                <span className="num" style={{ fontSize: 15, fontWeight: 600 }}>{r.symbol}</span>
+                <span className="num" style={{ fontSize: 15, fontWeight: 600 }}>{r.so_ngay_binh_quan} ngày</span>
+              </div>
+              <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 5, lineHeight: 1.7 }}>
+                {nf.format(r.qty)} cp · {r.so_lo} lô
+                <br />lô cũ nhất {r.lo_cu_nhat} ({r.so_ngay_lo_cu_nhat} ngày)
+                {r.so_lo > 1 && <> · lô mới nhất {r.lo_moi_nhat}</>}
+              </div>
+              {r.so_lo > 1 && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${cssVar("--line")}` }}>
+                  {r.lots.map((l, i) => (
+                    <div key={i} className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginBottom: 2 }}>
+                      {l.ngay_mua} · {nf.format(l.qty)} cp · {l.so_ngay} ngày
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {hold && (hold.rows || []).length === 0 && <Empty text="Chưa giữ mã nào." />}
+          <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6 }}>
+            Số ngày bình quân tính theo khối lượng từng lô, không lấy lô cũ nhất — mua thêm nhiều
+            đè lên một ít cổ giữ lâu thì con số phải phản ánh phần lớn.
+          </div>
+        </div>
+
+        <div className="num label">Phiên khối lượng bất thường</div>
+        <div style={{ marginTop: 8 }}>
+          {unusual && unusual.ok === false && (
+            <div className="box" style={{ padding: 12, borderColor: cssVar("--amber") }}>
+              <div style={{ fontSize: 12, color: cssVar("--amber") }}>{unusual.error}</div>
+            </div>
+          )}
+          {unusual && unusual.ok && (unusual.rows || []).filter((r) => r.unusual).length === 0 && (
+            <div style={{ fontSize: 12, color: cssVar("--muted") }}>
+              Không mã nào có khối lượng lạ trong phiên gần nhất.
+            </div>
+          )}
+          {unusual && unusual.ok && (unusual.rows || []).filter((r) => r.unusual).map((r) => (
+            <div key={r.symbol} className="box" style={{ padding: 14, marginBottom: 10,
+              borderColor: cssVar(HUONG[r.huong].c) }}>
+              <div className="between">
+                <span className="num" style={{ fontSize: 15, fontWeight: 600 }}>{r.symbol}</span>
+                <span className="num" style={{ fontSize: 14, fontWeight: 600 }}>
+                  {r.times.toFixed(1)}× trung vị
+                </span>
+              </div>
+              <div className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 5, lineHeight: 1.7 }}>
+                phiên {r.date} · khối lượng {nf.format(r.volume)} · thường ngày {nf.format(r.median)}
+                <br />
+                <span style={{ color: cssVar(HUONG[r.huong].c) }}>{HUONG[r.huong].t}</span>
+                {" · "}{r.thay_doi_pct >= 0 ? "+" : ""}{r.thay_doi_pct.toFixed(2)}% so với giá mở cửa
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6, marginTop: 8 }}>
+            So khối lượng phiên gần nhất với trung vị 20 phiên trước. Dùng trung vị chứ không dùng
+            trung bình vì chỉ một phiên đột biến là trung bình bị kéo lệch. Hướng tiền suy từ vị trí
+            giá đóng cửa trong biên độ ngày — là phỏng đoán, không phải số liệu mua bán thật.
+            Đây là quan sát, không phải khuyến nghị.
+          </div>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Lịch sự kiện quyền: ngày giao dịch không hưởng quyền, ngày chốt, ngày trả. */
+function StockEvents({ onClose, flash }) {
+  const [rows, setRows] = useState([]);
+  const [held, setHeld] = useState([]);
+  const [add, setAdd] = useState(null);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(() => {
+    api("/stock/events").then((d) => setRows(d.rows || [])).catch(() => {});
+    api("/portfolio").then((d) => setHeld(((d.snapshot || {}).positions) || [])).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+
+  const LOAI = [
+    { id: "co_tuc_tien", label: "Cổ tức tiền" },
+    { id: "co_tuc_cp", label: "Cổ tức cổ phiếu" },
+    { id: "phat_hanh_them", label: "Phát hành thêm" },
+    { id: "dhcd", label: "Đại hội cổ đông" },
+    { id: "khac", label: "Khác" },
+  ];
+  const loaiLabel = (id) => (LOAI.find((l) => l.id === id) || {}).label || id;
+
+  const save = () => {
+    setErr("");
+    api("/stock/events", { method: "POST", body: add })
+      .then(() => { flash("Đã thêm sự kiện"); setAdd(null); load(); })
+      .catch((e) => setErr(e.message));
+  };
+  const del = (id) => {
+    api(`/stock/events/${id}`, { method: "DELETE" }).then(() => { flash("Đã xóa"); load(); }).catch(() => {});
+  };
+
+  const today = todayISO();
+  const sapToi = rows.filter((r) => r.ex_date >= today);
+  const daQua = rows.filter((r) => r.ex_date < today);
+
+  const Row = ({ r }) => {
+    const giu = held.find((h) => h.symbol === r.symbol);
+    const conNgay = Math.round((new Date(r.ex_date) - new Date(today)) / 86400000);
+    return (
+      <div className="box" style={{ padding: 14, marginBottom: 10 }}>
+        <div className="between">
+          <span className="num" style={{ fontSize: 15, fontWeight: 600 }}>
+            {r.symbol} <span style={{ fontSize: 12, fontWeight: 400, color: cssVar("--muted") }}>{loaiLabel(r.loai)}</span>
+          </span>
+          <button onClick={() => del(r.id)} style={{ fontSize: 12, color: cssVar("--muted") }}>Xóa</button>
+        </div>
+        <div className="num" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.8 }}>
+          <b>GDKHQ {r.ex_date}</b>
+          {conNgay >= 0 && <span style={{ color: cssVar("--amber") }}>
+            {conNgay === 0 ? "  — hôm nay" : `  — còn ${conNgay} ngày`}
+          </span>}
+          {r.record_date && <><br />ngày chốt danh sách {r.record_date}</>}
+          {r.pay_date && <><br />ngày thanh toán {r.pay_date}</>}
+          {r.ty_le && <><br />tỷ lệ {r.ty_le}</>}
+          {r.gia_tri && giu && <><br />ước nhận {money(r.gia_tri * giu.qty)} cho {nf.format(giu.qty)} cp</>}
+          {r.ghi_chu && <><br /><span style={{ color: cssVar("--muted") }}>{r.ghi_chu}</span></>}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Sheet title="Lịch sự kiện quyền" onClose={onClose}>
+      <div className="pad" style={{ paddingTop: 18 }}>
+        <div className="box" style={{ padding: 12, marginBottom: 16, borderColor: cssVar("--amber") }}>
+          <div style={{ fontSize: 12, color: cssVar("--muted"), lineHeight: 1.7 }}>
+            Hiện phải nhập tay. Nguồn lịch quyền tự động (TCBS) chặn máy chủ đặt tại nước ngoài,
+            muốn tự động phải dựng thêm một cầu nối Cloudflare — chưa làm.
+          </div>
+        </div>
+
+        <Button kind="outline" onClick={() => setAdd({ symbol: held[0] ? held[0].symbol : "", loai: "co_tuc_tien" })}
+          style={{ width: "100%", marginBottom: 18 }}>+ Thêm sự kiện</Button>
+
+        {sapToi.length > 0 && <>
+          <div className="num label" style={{ marginBottom: 8 }}>Sắp tới</div>
+          {sapToi.slice().reverse().map((r) => <Row key={r.id} r={r} />)}
+        </>}
+        {daQua.length > 0 && <>
+          <div className="num label" style={{ margin: "18px 0 8px" }}>Đã qua</div>
+          {daQua.map((r) => <Row key={r.id} r={r} />)}
+        </>}
+        {rows.length === 0 && <Empty text="Chưa ghi sự kiện nào." />}
+
+        {add && (
+          <Sheet title="Thêm sự kiện quyền" onClose={() => setAdd(null)}>
+            <div className="pad" style={{ paddingTop: 18 }}>
+              <Field label="Mã">
+                <input value={add.symbol} placeholder="HCM"
+                  onChange={(e) => setAdd({ ...add, symbol: e.target.value.toUpperCase() })} />
+              </Field>
+              <Field label="Loại">
+                <Chips value={add.loai} onChange={(v) => setAdd({ ...add, loai: v })} options={LOAI} />
+              </Field>
+              <Field label="Ngày giao dịch không hưởng quyền" hint="Bắt buộc — mua từ ngày này không còn quyền">
+                <input type="date" value={add.ex_date || ""}
+                  onChange={(e) => setAdd({ ...add, ex_date: e.target.value })} />
+              </Field>
+              <Field label="Ngày chốt danh sách">
+                <input type="date" value={add.record_date || ""}
+                  onChange={(e) => setAdd({ ...add, record_date: e.target.value })} />
+              </Field>
+              <Field label="Ngày thanh toán">
+                <input type="date" value={add.pay_date || ""}
+                  onChange={(e) => setAdd({ ...add, pay_date: e.target.value })} />
+              </Field>
+              <Field label="Tỷ lệ" hint="ví dụ 15% hoặc 10:1">
+                <input value={add.ty_le || ""} onChange={(e) => setAdd({ ...add, ty_le: e.target.value })} />
+              </Field>
+              <Field label="Số tiền trên mỗi cổ phiếu (đồng)" hint="để ước tính số nhận được">
+                <input inputMode="numeric" value={add.gia_tri || ""} placeholder="1500"
+                  onChange={(e) => setAdd({ ...add, gia_tri: e.target.value })} />
+              </Field>
+              <Field label="Ghi chú">
+                <input value={add.ghi_chu || ""} onChange={(e) => setAdd({ ...add, ghi_chu: e.target.value })} />
+              </Field>
+              {err && <div style={{ color: cssVar("--red"), fontSize: 13, marginBottom: 10 }}>{err}</div>}
+              <Button onClick={save} style={{ width: "100%" }}>Lưu sự kiện</Button>
             </div>
           </Sheet>
         )}

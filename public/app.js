@@ -2120,6 +2120,20 @@ function Invest({
     }
   }, React.createElement(Button, {
     kind: "outline",
+    onClick: () => setTool("analysis"),
+    style: {
+      padding: "6px 12px",
+      fontSize: 12
+    }
+  }, "Phân tích"), React.createElement(Button, {
+    kind: "outline",
+    onClick: () => setTool("events"),
+    style: {
+      padding: "6px 12px",
+      fontSize: 12
+    }
+  }, "Lịch quyền"), React.createElement(Button, {
+    kind: "outline",
     onClick: () => setTool("report"),
     style: {
       padding: "6px 12px",
@@ -2576,6 +2590,12 @@ function Invest({
   }), tool === "report" && React.createElement(InvestReport, {
     onClose: () => setTool(null)
   }), tool === "alerts" && React.createElement(PriceAlerts, {
+    flash: flash,
+    onClose: () => setTool(null)
+  }), tool === "analysis" && React.createElement(InvestAnalysis, {
+    flash: flash,
+    onClose: () => setTool(null)
+  }), tool === "events" && React.createElement(StockEvents, {
     flash: flash,
     onClose: () => setTool(null)
   }));
@@ -3293,6 +3313,28 @@ function BatchEntry({
       onClose();
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
   };
+  const [tcbs, setTcbs] = useState("");
+  const [showTcbs, setShowTcbs] = useState(false);
+  const doTcbs = () => {
+    setBusy(true);
+    setErr("");
+    api("/stock/tcbs/parse", {
+      method: "POST",
+      body: {
+        text: tcbs
+      }
+    }).then(d => {
+      if (!d.doc_duoc) {
+        setErr("Không đọc được dòng nào từ tin nhắn");
+        return;
+      }
+      setText(t => (t.trim() ? t.trim() + "\n" : "") + d.text);
+      setPrev(null);
+      setShowTcbs(false);
+      const luuY = d.rows.filter(r => r.ghi_chu);
+      flash(`Đọc được ${d.doc_duoc} lệnh${d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : ""}` + (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
+    }).catch(e => setErr(e.message)).finally(() => setBusy(false));
+  };
   const ready = prev && prev.loi === 0 && !prev.loi_tong_the && prev.hop_le > 0;
   return React.createElement(Sheet, {
     title: "Nhập nhiều giao dịch",
@@ -3332,7 +3374,46 @@ THUONG CTS 500 20/08`), React.createElement("div", {
       marginTop: 10,
       lineHeight: 1.6
     }
-  }, "Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.")), React.createElement("textarea", {
+  }, "Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.")), React.createElement(Button, {
+    kind: "outline",
+    onClick: () => setShowTcbs(!showTcbs),
+    style: {
+      width: "100%",
+      marginBottom: 12,
+      fontSize: 12,
+      padding: "8px"
+    }
+  }, showTcbs ? "Ẩn ô tin nhắn TCBS" : "Dán tin nhắn từ TCBS"), showTcbs && React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, React.createElement("textarea", {
+    rows: 4,
+    value: tcbs,
+    placeholder: "Dán nguyên tin nhắn khớp lệnh từ TCBS…",
+    onChange: e => setTcbs(e.target.value),
+    style: {
+      width: "100%",
+      fontSize: 12,
+      lineHeight: 1.6
+    }
+  }), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      lineHeight: 1.6,
+      margin: "8px 0"
+    }
+  }, "Chỉ lấy phần ", React.createElement("b", null, "đã khớp"), ", bỏ qua lệnh chờ và lệnh hủy. Số tài khoản trong tin nhắn không được lưu lại. Đọc xong vẫn xem trước rồi mới ghi."), React.createElement(Button, {
+    kind: "outline",
+    onClick: doTcbs,
+    disabled: busy || !tcbs.trim(),
+    style: {
+      width: "100%",
+      fontSize: 12,
+      padding: "8px"
+    }
+  }, "Đọc tin nhắn")), React.createElement("textarea", {
     rows: 8,
     value: text,
     placeholder: "Dán hoặc gõ các lệnh vào đây…",
@@ -3722,6 +3803,487 @@ function PriceAlerts({
       width: "100%"
     }
   }, busy ? "Đang lưu…" : "Lưu mốc")))));
+}
+function InvestAnalysis({
+  onClose,
+  flash
+}) {
+  const [hold, setHold] = useState(null);
+  const [mi, setMi] = useState(null);
+  const [unusual, setUnusual] = useState(null);
+  const [rate, setRate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(() => {
+    api("/stock/holding").then(setHold).catch(() => {});
+    api("/stock/margin-interest").then(d => {
+      setMi(d);
+      setRate(String(d.lai_suat_nam));
+    }).catch(() => {});
+    api("/stock/unusual").then(setUnusual).catch(e => setUnusual({
+      ok: false,
+      error: e.message
+    }));
+  }, []);
+  useEffect(load, [load]);
+  const saveRate = () => {
+    setSaving(true);
+    api("/stock/settings", {
+      method: "POST",
+      body: {
+        margin_rate_year: Number(rate)
+      }
+    }).then(() => {
+      flash("Đã lưu lãi suất");
+      load();
+    }).catch(e => flash(e.message)).finally(() => setSaving(false));
+  };
+  const HUONG = {
+    ben_mua_manh: {
+      t: "đóng cửa gần đỉnh ngày",
+      c: "--green"
+    },
+    ben_ban_manh: {
+      t: "đóng cửa gần đáy ngày",
+      c: "--red"
+    },
+    khong_ro: {
+      t: "đóng cửa giữa biên độ",
+      c: "--muted"
+    }
+  };
+  return React.createElement(Sheet, {
+    title: "Phân tích danh mục",
+    onClose: onClose
+  }, React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 18
+    }
+  }, React.createElement("div", {
+    className: "num label"
+  }, "Lãi vay margin ước tính"), mi && React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14,
+      marginTop: 8,
+      marginBottom: 8
+    }
+  }, React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: cssVar("--red")
+    }
+  }, money(mi.uoc_tinh)), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 6,
+      lineHeight: 1.7
+    }
+  }, mi.tu_ngay, " → ", mi.den_ngay, " · ", mi.so_ngay_vay, " ngày có dư nợ", React.createElement("br", null), "dư nợ cao nhất ", short(mi.du_no_cao_nhat), " ngày ", mi.ngay_du_no_cao_nhat, mi.moc_doi_chieu_truoc ? React.createElement(React.Fragment, null, React.createElement("br", null), "tính từ mốc đối chiếu ", mi.moc_doi_chieu_truoc) : React.createElement(React.Fragment, null, React.createElement("br", null), "chưa có mốc đối chiếu nào, tính từ giao dịch đầu tiên")), React.createElement("div", {
+    className: "between",
+    style: {
+      marginTop: 12,
+      gap: 8
+    }
+  }, React.createElement("input", {
+    inputMode: "decimal",
+    value: rate,
+    onChange: e => setRate(e.target.value),
+    style: {
+      flex: 1
+    },
+    placeholder: "14.6"
+  }), React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted")
+    }
+  }, "%/năm"), React.createElement(Button, {
+    kind: "outline",
+    onClick: saveRate,
+    disabled: saving,
+    style: {
+      padding: "6px 12px",
+      fontSize: 12
+    }
+  }, "Lưu"))), React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      lineHeight: 1.7,
+      marginTop: 0,
+      marginBottom: 24
+    }
+  }, "Đây là số ", React.createElement("b", null, "ước tính"), ", không phải số công ty chứng khoán thu. Lãi suất thay đổi theo gói, lại còn phí ứng trước tiền bán và các khoản khác không nằm trong sổ. Số thật chỉ có khi đối chiếu — con số này để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không."), React.createElement("div", {
+    className: "num label"
+  }, "Thời gian nắm giữ"), React.createElement("div", {
+    style: {
+      marginTop: 8,
+      marginBottom: 24
+    }
+  }, hold && (hold.rows || []).map(r => React.createElement("div", {
+    key: r.symbol,
+    className: "box",
+    style: {
+      padding: 14,
+      marginBottom: 10
+    }
+  }, React.createElement("div", {
+    className: "between"
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 15,
+      fontWeight: 600
+    }
+  }, r.symbol), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 15,
+      fontWeight: 600
+    }
+  }, r.so_ngay_binh_quan, " ngày")), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 5,
+      lineHeight: 1.7
+    }
+  }, nf.format(r.qty), " cp · ", r.so_lo, " lô", React.createElement("br", null), "lô cũ nhất ", r.lo_cu_nhat, " (", r.so_ngay_lo_cu_nhat, " ngày)", r.so_lo > 1 && React.createElement(React.Fragment, null, " · lô mới nhất ", r.lo_moi_nhat)), r.so_lo > 1 && React.createElement("div", {
+    style: {
+      marginTop: 8,
+      paddingTop: 8,
+      borderTop: `1px solid ${cssVar("--line")}`
+    }
+  }, r.lots.map((l, i) => React.createElement("div", {
+    key: i,
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginBottom: 2
+    }
+  }, l.ngay_mua, " · ", nf.format(l.qty), " cp · ", l.so_ngay, " ngày"))))), hold && (hold.rows || []).length === 0 && React.createElement(Empty, {
+    text: "Chưa giữ mã nào."
+  }), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      lineHeight: 1.6
+    }
+  }, "Số ngày bình quân tính theo khối lượng từng lô, không lấy lô cũ nhất — mua thêm nhiều đè lên một ít cổ giữ lâu thì con số phải phản ánh phần lớn.")), React.createElement("div", {
+    className: "num label"
+  }, "Phiên khối lượng bất thường"), React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, unusual && unusual.ok === false && React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 12,
+      borderColor: cssVar("--amber")
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--amber")
+    }
+  }, unusual.error)), unusual && unusual.ok && (unusual.rows || []).filter(r => r.unusual).length === 0 && React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted")
+    }
+  }, "Không mã nào có khối lượng lạ trong phiên gần nhất."), unusual && unusual.ok && (unusual.rows || []).filter(r => r.unusual).map(r => React.createElement("div", {
+    key: r.symbol,
+    className: "box",
+    style: {
+      padding: 14,
+      marginBottom: 10,
+      borderColor: cssVar(HUONG[r.huong].c)
+    }
+  }, React.createElement("div", {
+    className: "between"
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 15,
+      fontWeight: 600
+    }
+  }, r.symbol), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, r.times.toFixed(1), "× trung vị")), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      marginTop: 5,
+      lineHeight: 1.7
+    }
+  }, "phiên ", r.date, " · khối lượng ", nf.format(r.volume), " · thường ngày ", nf.format(r.median), React.createElement("br", null), React.createElement("span", {
+    style: {
+      color: cssVar(HUONG[r.huong].c)
+    }
+  }, HUONG[r.huong].t), " · ", r.thay_doi_pct >= 0 ? "+" : "", r.thay_doi_pct.toFixed(2), "% so với giá mở cửa"))), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      lineHeight: 1.6,
+      marginTop: 8
+    }
+  }, "So khối lượng phiên gần nhất với trung vị 20 phiên trước. Dùng trung vị chứ không dùng trung bình vì chỉ một phiên đột biến là trung bình bị kéo lệch. Hướng tiền suy từ vị trí giá đóng cửa trong biên độ ngày — là phỏng đoán, không phải số liệu mua bán thật. Đây là quan sát, không phải khuyến nghị."))));
+}
+function StockEvents({
+  onClose,
+  flash
+}) {
+  const [rows, setRows] = useState([]);
+  const [held, setHeld] = useState([]);
+  const [add, setAdd] = useState(null);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => {
+    api("/stock/events").then(d => setRows(d.rows || [])).catch(() => {});
+    api("/portfolio").then(d => setHeld((d.snapshot || {}).positions || [])).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+  const LOAI = [{
+    id: "co_tuc_tien",
+    label: "Cổ tức tiền"
+  }, {
+    id: "co_tuc_cp",
+    label: "Cổ tức cổ phiếu"
+  }, {
+    id: "phat_hanh_them",
+    label: "Phát hành thêm"
+  }, {
+    id: "dhcd",
+    label: "Đại hội cổ đông"
+  }, {
+    id: "khac",
+    label: "Khác"
+  }];
+  const loaiLabel = id => (LOAI.find(l => l.id === id) || {}).label || id;
+  const save = () => {
+    setErr("");
+    api("/stock/events", {
+      method: "POST",
+      body: add
+    }).then(() => {
+      flash("Đã thêm sự kiện");
+      setAdd(null);
+      load();
+    }).catch(e => setErr(e.message));
+  };
+  const del = id => {
+    api(`/stock/events/${id}`, {
+      method: "DELETE"
+    }).then(() => {
+      flash("Đã xóa");
+      load();
+    }).catch(() => {});
+  };
+  const today = todayISO();
+  const sapToi = rows.filter(r => r.ex_date >= today);
+  const daQua = rows.filter(r => r.ex_date < today);
+  const Row = ({
+    r
+  }) => {
+    const giu = held.find(h => h.symbol === r.symbol);
+    const conNgay = Math.round((new Date(r.ex_date) - new Date(today)) / 86400000);
+    return React.createElement("div", {
+      className: "box",
+      style: {
+        padding: 14,
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      className: "between"
+    }, React.createElement("span", {
+      className: "num",
+      style: {
+        fontSize: 15,
+        fontWeight: 600
+      }
+    }, r.symbol, " ", React.createElement("span", {
+      style: {
+        fontSize: 12,
+        fontWeight: 400,
+        color: cssVar("--muted")
+      }
+    }, loaiLabel(r.loai))), React.createElement("button", {
+      onClick: () => del(r.id),
+      style: {
+        fontSize: 12,
+        color: cssVar("--muted")
+      }
+    }, "Xóa")), React.createElement("div", {
+      className: "num",
+      style: {
+        fontSize: 12,
+        marginTop: 6,
+        lineHeight: 1.8
+      }
+    }, React.createElement("b", null, "GDKHQ ", r.ex_date), conNgay >= 0 && React.createElement("span", {
+      style: {
+        color: cssVar("--amber")
+      }
+    }, conNgay === 0 ? "  — hôm nay" : `  — còn ${conNgay} ngày`), r.record_date && React.createElement(React.Fragment, null, React.createElement("br", null), "ngày chốt danh sách ", r.record_date), r.pay_date && React.createElement(React.Fragment, null, React.createElement("br", null), "ngày thanh toán ", r.pay_date), r.ty_le && React.createElement(React.Fragment, null, React.createElement("br", null), "tỷ lệ ", r.ty_le), r.gia_tri && giu && React.createElement(React.Fragment, null, React.createElement("br", null), "ước nhận ", money(r.gia_tri * giu.qty), " cho ", nf.format(giu.qty), " cp"), r.ghi_chu && React.createElement(React.Fragment, null, React.createElement("br", null), React.createElement("span", {
+      style: {
+        color: cssVar("--muted")
+      }
+    }, r.ghi_chu))));
+  };
+  return React.createElement(Sheet, {
+    title: "Lịch sự kiện quyền",
+    onClose: onClose
+  }, React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 18
+    }
+  }, React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 12,
+      marginBottom: 16,
+      borderColor: cssVar("--amber")
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      lineHeight: 1.7
+    }
+  }, "Hiện phải nhập tay. Nguồn lịch quyền tự động (TCBS) chặn máy chủ đặt tại nước ngoài, muốn tự động phải dựng thêm một cầu nối Cloudflare — chưa làm.")), React.createElement(Button, {
+    kind: "outline",
+    onClick: () => setAdd({
+      symbol: held[0] ? held[0].symbol : "",
+      loai: "co_tuc_tien"
+    }),
+    style: {
+      width: "100%",
+      marginBottom: 18
+    }
+  }, "+ Thêm sự kiện"), sapToi.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "num label",
+    style: {
+      marginBottom: 8
+    }
+  }, "Sắp tới"), sapToi.slice().reverse().map(r => React.createElement(Row, {
+    key: r.id,
+    r: r
+  }))), daQua.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "num label",
+    style: {
+      margin: "18px 0 8px"
+    }
+  }, "Đã qua"), daQua.map(r => React.createElement(Row, {
+    key: r.id,
+    r: r
+  }))), rows.length === 0 && React.createElement(Empty, {
+    text: "Chưa ghi sự kiện nào."
+  }), add && React.createElement(Sheet, {
+    title: "Thêm sự kiện quyền",
+    onClose: () => setAdd(null)
+  }, React.createElement("div", {
+    className: "pad",
+    style: {
+      paddingTop: 18
+    }
+  }, React.createElement(Field, {
+    label: "Mã"
+  }, React.createElement("input", {
+    value: add.symbol,
+    placeholder: "HCM",
+    onChange: e => setAdd({
+      ...add,
+      symbol: e.target.value.toUpperCase()
+    })
+  })), React.createElement(Field, {
+    label: "Loại"
+  }, React.createElement(Chips, {
+    value: add.loai,
+    onChange: v => setAdd({
+      ...add,
+      loai: v
+    }),
+    options: LOAI
+  })), React.createElement(Field, {
+    label: "Ngày giao dịch không hưởng quyền",
+    hint: "Bắt buộc — mua từ ngày này không còn quyền"
+  }, React.createElement("input", {
+    type: "date",
+    value: add.ex_date || "",
+    onChange: e => setAdd({
+      ...add,
+      ex_date: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Ngày chốt danh sách"
+  }, React.createElement("input", {
+    type: "date",
+    value: add.record_date || "",
+    onChange: e => setAdd({
+      ...add,
+      record_date: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Ngày thanh toán"
+  }, React.createElement("input", {
+    type: "date",
+    value: add.pay_date || "",
+    onChange: e => setAdd({
+      ...add,
+      pay_date: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Tỷ lệ",
+    hint: "ví dụ 15% hoặc 10:1"
+  }, React.createElement("input", {
+    value: add.ty_le || "",
+    onChange: e => setAdd({
+      ...add,
+      ty_le: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Số tiền trên mỗi cổ phiếu (đồng)",
+    hint: "để ước tính số nhận được"
+  }, React.createElement("input", {
+    inputMode: "numeric",
+    value: add.gia_tri || "",
+    placeholder: "1500",
+    onChange: e => setAdd({
+      ...add,
+      gia_tri: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Ghi chú"
+  }, React.createElement("input", {
+    value: add.ghi_chu || "",
+    onChange: e => setAdd({
+      ...add,
+      ghi_chu: e.target.value
+    })
+  })), err && React.createElement("div", {
+    style: {
+      color: cssVar("--red"),
+      fontSize: 13,
+      marginBottom: 10
+    }
+  }, err), React.createElement(Button, {
+    onClick: save,
+    style: {
+      width: "100%"
+    }
+  }, "Lưu sự kiện")))));
 }
 function Reports({
   month,

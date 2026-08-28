@@ -136,3 +136,103 @@ export function applyLivePrices(snapshot, live) {
     unrealized_pct: costValue > 0 ? ((stockValue - costValue) / costValue) * 100 : null,
   };
 }
+
+/* ==================== Volume lịch sử & giao dịch bất thường ==================== */
+
+const OHLC_URL = "https://trading.vietcap.com.vn/api/chart/OHLCChart/gap";
+let ohlcCache = new Map(); // symbol -> { at, bars }
+const OHLC_TTL = 30 * 60 * 1000; // 30 phút, dữ liệu ngày không đổi trong phiên
+
+/**
+ * Lấy nến ngày kèm khối lượng. Một request cho nhiều mã.
+ *
+ * Dùng chính endpoint mà bảng giá đang gọi nên không thêm phụ thuộc nào —
+ * không Python, không pandas. Cache 30 phút vì nến ngày chỉ chốt sau phiên.
+ */
+export async function fetchDailyBars(symbols, days = 90) {
+  const list = [...new Set(symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean))];
+  if (!list.length) return {};
+
+  const fresh = Date.now() - OHLC_TTL;
+  const need = list.filter((s) => !ohlcCache.has(s) || ohlcCache.get(s).at < fresh);
+  const out = {};
+  for (const s of list) if (ohlcCache.has(s) && ohlcCache.get(s).at >= fresh) out[s] = ohlcCache.get(s).bars;
+  if (!need.length) return out;
+
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - 86400 * days;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
+  let body;
+  try {
+    const res = await fetch(OHLC_URL, {
+      method: "POST", signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+        Referer: "https://trading.vietcap.com.vn/", Accept: "application/json",
+      },
+      body: JSON.stringify({ timeFrame: "ONE_DAY", symbols: need, from, to }),
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`máy chủ trả lỗi ${res.status}`);
+    body = await res.json();
+  } catch (e) {
+    clearTimeout(timer);
+    throw new Error(e.name === "AbortError" ? "Lấy dữ liệu phiên quá lâu" : `Không lấy được dữ liệu phiên: ${e.message}`);
+  }
+
+  for (const d of (Array.isArray(body) ? body : body.data || [])) {
+    const sym = String(d.symbol || "").toUpperCase();
+    if (!sym || !Array.isArray(d.t)) continue;
+    const bars = d.t.map((ts, i) => ({
+      date: new Date(ts * 1000).toISOString().slice(0, 10),
+      open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v[i],
+    }));
+    ohlcCache.set(sym, { at: Date.now(), bars });
+    out[sym] = bars;
+  }
+  return out;
+}
+
+/**
+ * Phát hiện phiên có khối lượng bất thường.
+ *
+ * Cách làm cố ý đơn giản và dễ kiểm chứng: so khối lượng phiên gần nhất với
+ * trung vị 20 phiên trước đó. Dùng trung vị chứ không dùng trung bình, vì chỉ
+ * cần một phiên đột biến là trung bình bị kéo lệch và những phiên bất thường
+ * sau đó sẽ không còn nổi lên nữa.
+ *
+ * Hướng tiền được suy từ vị trí giá đóng cửa trong biên độ ngày — đây là suy
+ * luận, không phải số liệu mua/bán thật, nên nhãn ghi rõ là phỏng đoán.
+ *
+ * Đây là quan sát, không phải khuyến nghị mua bán.
+ */
+export function findUnusualVolume(bars, { lookback = 20, ratio = 2 } = {}) {
+  if (!Array.isArray(bars) || bars.length < lookback + 1) return null;
+
+  const last = bars[bars.length - 1];
+  const prev = bars.slice(-lookback - 1, -1).map((b) => b.volume).filter((v) => v > 0);
+  if (prev.length < Math.floor(lookback / 2)) return null;
+
+  const sorted = [...prev].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (!median) return null;
+
+  const times = last.volume / median;
+  if (times < ratio) return { symbol: last.symbol, unusual: false, times, median, volume: last.volume, date: last.date };
+
+  const range = last.high - last.low;
+  const closePos = range > 0 ? (last.close - last.low) / range : 0.5;
+  const changePct = last.open > 0 ? ((last.close - last.open) / last.open) * 100 : 0;
+
+  let huong = "khong_ro";
+  if (closePos >= 0.7) huong = "ben_mua_manh";
+  else if (closePos <= 0.3) huong = "ben_ban_manh";
+
+  return {
+    unusual: true, date: last.date, volume: last.volume, median,
+    times, huong, dong_cua_trong_bien: closePos, thay_doi_pct: changePct,
+  };
+}

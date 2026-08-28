@@ -7,12 +7,13 @@ import { q, uid, now, seedCategories } from "./db.js";
 import { createUser, login, verifyToken, userCount, verifyPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
-import { fetchPrices, applyLivePrices } from "./prices.js";
+import { fetchPrices, applyLivePrices, fetchDailyBars, findUnusualVolume } from "./prices.js";
 import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
          appendTx, undoLast, history as stockHistory, realizedTrades, txTypes,
          cashFlow, checkAgainstBroker, applyReconcile, markReconciled, reconcileHistory, lastReconcile,
          periodReport, bySymbolReport, getAlerts, setAlert, checkAlerts,
-         parseBatch, commitBatch } from "./stock.js";
+         parseBatch, commitBatch, marginInterest, holdingDays,
+         investSettings, saveInvestSettings, tcbsToBatch } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -626,6 +627,79 @@ route("GET", "/api/stock/export", (ctx) => {
     served_at: new Date().toISOString(),
   };
 }, { auth: false });
+
+/* ---------- Lãi vay margin ước tính ---------- */
+
+route("GET", "/api/stock/margin-interest", (ctx) =>
+  marginInterest(ctx.userId, { from: ctx.query?.from, to: ctx.query?.to }));
+
+/* ---------- Số ngày nắm giữ ---------- */
+
+route("GET", "/api/stock/holding", (ctx) => holdingDays(ctx.userId));
+
+/* ---------- Cài đặt sổ đầu tư ---------- */
+
+route("GET", "/api/stock/settings", (ctx) => investSettings(ctx.userId));
+route("POST", "/api/stock/settings", (ctx) => saveInvestSettings(ctx.userId, ctx.body));
+
+/* ---------- Đọc tin nhắn TCBS ---------- */
+
+route("POST", "/api/stock/tcbs/parse", (ctx) => tcbsToBatch(ctx.body?.text));
+
+/* ---------- Giao dịch bất thường ---------- */
+
+route("GET", "/api/stock/unusual", async (ctx) => {
+  const st = stockState(ctx.userId);
+  if (st.error) return { error: st.error };
+  const syms = Object.keys(st.positions);
+  if (!syms.length) return { ok: true, rows: [] };
+
+  let bars;
+  try { bars = await fetchDailyBars(syms, 90); }
+  catch (e) { return { ok: false, error: e.message }; }
+
+  const rows = [];
+  for (const sym of syms) {
+    const r = findUnusualVolume(bars[sym] || []);
+    if (r) rows.push({ symbol: sym, ...r });
+  }
+  return { ok: true, rows: rows.sort((a, b) => (b.times || 0) - (a.times || 0)) };
+});
+
+/* ---------- Lịch sự kiện quyền ---------- */
+
+route("GET", "/api/stock/events", (ctx) => ({
+  ok: true,
+  rows: q.all("SELECT * FROM stock_event WHERE user_id=? ORDER BY ex_date DESC, created_at DESC LIMIT 100", ctx.userId),
+}));
+
+route("POST", "/api/stock/events", (ctx) => {
+  const b = ctx.body || {};
+  const sym = String(b.symbol || "").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(sym)) throw new Error("Mã chứng khoán phải đúng 3 chữ cái");
+  const LOAI = ["co_tuc_tien", "co_tuc_cp", "phat_hanh_them", "dhcd", "khac"];
+  const loai = String(b.loai || "khac");
+  if (!LOAI.includes(loai)) throw new Error("Loại sự kiện không hợp lệ");
+  const d = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : null);
+  if (!d(b.ex_date)) throw new Error("Cần ngày giao dịch không hưởng quyền");
+
+  const id = "ev" + Date.now().toString(36);
+  q.run(
+    `INSERT INTO stock_event (id,user_id,symbol,loai,ex_date,record_date,pay_date,gia_tri,ty_le,ghi_chu,nguon,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    id, ctx.userId, sym, loai, d(b.ex_date), d(b.record_date), d(b.pay_date),
+    b.gia_tri ? Math.round(Number(b.gia_tri)) : null,
+    b.ty_le ? String(b.ty_le).slice(0, 40) : null,
+    b.ghi_chu ? String(b.ghi_chu).slice(0, 200) : null,
+    "nhap_tay", Date.now()
+  );
+  return { ok: true, id };
+});
+
+route("DELETE", "/api/stock/events/:id", (ctx) => {
+  q.run("DELETE FROM stock_event WHERE user_id=? AND id=?", ctx.userId, ctx.params.id);
+  return { ok: true };
+});
 
 /* ---------- GĐ2: tiền T+2 ---------- */
 

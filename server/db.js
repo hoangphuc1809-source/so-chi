@@ -132,6 +132,34 @@ CREATE TABLE IF NOT EXISTS stock_tx (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_tx_user ON stock_tx(user_id, date, seq);
 
+-- Cai dat rieng cua so dau tu (lai suat margin...).
+CREATE TABLE IF NOT EXISTS stock_setting (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+
+-- Lich su kien quyen: ngay giao dich khong huong quyen, ngay chot, co tuc.
+-- Nguon tu dong bi Cloudflare chan tu IP GCP nen hien nhap tay; cot nguon
+-- de phan biet khi nao noi duoc nguon tu dong.
+CREATE TABLE IF NOT EXISTS stock_event (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  symbol     TEXT NOT NULL,
+  loai       TEXT NOT NULL,
+  ex_date    TEXT,
+  record_date TEXT,
+  pay_date   TEXT,
+  gia_tri    INTEGER,
+  ty_le      TEXT,
+  ghi_chu    TEXT,
+  nguon      TEXT NOT NULL DEFAULT 'nhap_tay',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_event_user ON stock_event(user_id, ex_date);
+
 -- Moc cat lo / chot loi do chinh nguoi dung dat. App khong tu sinh moc nao.
 CREATE TABLE IF NOT EXISTS stock_alert (
   id         TEXT PRIMARY KEY,

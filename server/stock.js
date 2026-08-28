@@ -787,3 +787,209 @@ export function commitBatch(userId, text) {
   }
   return { ok: true, da_ghi: written.length, txs: written };
 }
+
+/* ==================== Lãi vay margin ước tính ==================== */
+
+/**
+ * Ước tính lãi vay margin phải trả.
+ *
+ * Chạy lại sổ theo từng ngày, ngày nào tiền mặt âm thì cộng lãi cho dư nợ ngày
+ * đó. Tính cả thứ bảy chủ nhật vì công ty chứng khoán tính lãi theo ngày lịch,
+ * không theo ngày giao dịch.
+ *
+ * ĐÂY LÀ SỐ ƯỚC TÍNH, không phải số công ty chứng khoán thu. Lãi suất thay đổi
+ * theo gói và theo thời điểm, lại còn phí ứng trước tiền bán và các khoản lặt
+ * vặt khác không nằm trong sổ. Số thật chỉ có được khi đối chiếu. Mục đích của
+ * hàm này là để biết trước khoảng bao nhiêu, và để thấy con số đối chiếu có hợp
+ * lý hay không.
+ */
+export function marginInterest(userId, { annualRate, from, to } = {}) {
+  const rate = Number(annualRate) || getSetting(userId, "margin_rate_year", 14.6);
+  const txs = loadTxs(userId);
+  if (!txs.length) return { ok: true, uoc_tinh: 0, so_ngay_vay: 0, lai_suat_nam: rate, ngay: [] };
+
+  const end = to && isDate(to) ? to : new Date().toISOString().slice(0, 10);
+  const prev = lastReconcile(userId);
+  const start = from && isDate(from)
+    ? from
+    : prev ? prev.date : [...txs].sort((a, b) => (a.date < b.date ? -1 : 1))[0].date;
+
+  const daily = rate / 100 / 365;
+  const sorted = [...txs].sort((a, b) => (a.date === b.date ? a.seq - b.seq : a.date < b.date ? -1 : 1));
+
+  let total = 0, borrowDays = 0, peak = 0, peakDate = null;
+  const detail = [];
+  const cursor = new Date(start + "T00:00:00Z");
+  const endD = new Date(end + "T00:00:00Z");
+
+  while (cursor <= endD) {
+    const day = cursor.toISOString().slice(0, 10);
+    // Dựng lại sổ tính đến hết ngày này. Chậm hơn cách cộng dồn nhưng dùng
+    // đúng một engine với mọi con số khác — không sợ hai chỗ tính lệch nhau.
+    const st = rebuild(sorted.filter((t) => t.date <= day));
+    const debt = st.cash < 0 ? -st.cash : 0;
+    if (debt > 0) {
+      const i = debt * daily;
+      total += i;
+      borrowDays += 1;
+      if (debt > peak) { peak = debt; peakDate = day; }
+      detail.push({ date: day, du_no: debt, lai_ngay: Math.round(i) });
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return {
+    ok: true,
+    tu_ngay: start, den_ngay: end,
+    moc_doi_chieu_truoc: prev ? prev.date : null,
+    lai_suat_nam: rate,
+    so_ngay_vay: borrowDays,
+    du_no_cao_nhat: peak,
+    ngay_du_no_cao_nhat: peakDate,
+    uoc_tinh: Math.round(total),
+    ngay: detail.slice(-40),
+  };
+}
+
+/* ==================== Số ngày nắm giữ ==================== */
+
+/**
+ * Số ngày đã giữ từng mã, tính theo từng lô rồi bình quân theo số lượng.
+ *
+ * Bình quân gia quyền chứ không lấy lô cũ nhất: mua thêm 5000 cổ hôm qua đè lên
+ * 100 cổ giữ từ năm ngoái thì nói "đã giữ 400 ngày" là sai lệch hẳn.
+ */
+export function holdingDays(userId) {
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+  const today = new Date().toISOString().slice(0, 10);
+
+  const rows = Object.entries(st.positions).map(([symbol, p]) => {
+    const lots = p.lots.map((l) => ({
+      ngay_mua: l.date, qty: l.qty, so_ngay: daysBetween(l.date, today),
+      ve_tai_khoan: settleDate(l.date),
+    }));
+    const totalQty = lots.reduce((s, l) => s + l.qty, 0);
+    const weighted = totalQty > 0
+      ? lots.reduce((s, l) => s + l.so_ngay * l.qty, 0) / totalQty : 0;
+    return {
+      symbol, qty: p.qty,
+      so_ngay_binh_quan: Math.round(weighted),
+      lo_cu_nhat: lots.length ? lots[0].ngay_mua : null,
+      so_ngay_lo_cu_nhat: lots.length ? lots[0].so_ngay : 0,
+      lo_moi_nhat: lots.length ? lots[lots.length - 1].ngay_mua : null,
+      so_lo: lots.length,
+      lots,
+    };
+  }).sort((a, b) => b.so_ngay_binh_quan - a.so_ngay_binh_quan);
+
+  return { ok: true, rows };
+}
+
+/* ==================== Cài đặt riêng của sổ đầu tư ==================== */
+
+function getSetting(userId, key, fallback) {
+  const r = q.get("SELECT value FROM stock_setting WHERE user_id=? AND key=?", userId, key);
+  if (!r) return fallback;
+  const n = Number(r.value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export function investSettings(userId) {
+  return { margin_rate_year: getSetting(userId, "margin_rate_year", 14.6) };
+}
+
+export function saveInvestSettings(userId, input) {
+  if (input.margin_rate_year !== undefined) {
+    const v = Number(input.margin_rate_year);
+    if (!Number.isFinite(v) || v < 0 || v > 100) throw new Error("Lãi suất phải trong khoảng 0 đến 100");
+    q.run(
+      `INSERT INTO stock_setting (user_id,key,value,updated_at) VALUES (?,?,?,?)
+       ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+      userId, "margin_rate_year", String(v), Date.now()
+    );
+  }
+  return investSettings(userId);
+}
+
+/* ==================== Đọc tin nhắn TCBS ==================== */
+
+/**
+ * Dịch tin nhắn khớp lệnh TCBS sang lệnh của Sổ Chi.
+ *
+ * Mẫu đã có:
+ *   13/08/2026 - TK 105C110678 - Tiểu khoản Ký quỹ: Đặt mua 5,000 HCM giá
+ *   25,950. Đã khớp 5,000 giá 25,950
+ *
+ * Hai điểm quan trọng:
+ *
+ * Luôn lấy số ở vế "Đã khớp", không lấy số đặt. Lệnh khớp một phần có hai số
+ * khác nhau và ghi theo số đặt là ghi khống cổ phiếu chưa hề mua được.
+ *
+ * Không có vế "Đã khớp" thì bỏ qua dòng đó, không đoán. Lệnh chờ hoặc lệnh hủy
+ * chưa phải giao dịch, đưa vào sổ là sai.
+ *
+ * Số tài khoản trong tin nhắn KHÔNG được lưu. Sổ chỉ cần biết mua bán gì, còn
+ * số tài khoản để lại trong database chỉ tạo thêm thứ phải bảo vệ mà không dùng
+ * đến bao giờ.
+ *
+ * Đây mới là một mẫu mua. Mẫu bán, khớp một phần, khớp nhiều lần và tin cổ tức
+ * cần kiểm chứng thêm — parser cố tình từ chối những gì không chắc thay vì đoán.
+ */
+export function parseTcbsMessages(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const num = (s) => Number(String(s).replace(/[.,\s]/g, ""));
+
+  return lines.map((line, i) => {
+    const out = { dong: i + 1, raw: line };
+
+    const dm = line.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!dm) { out.loi = "Không thấy ngày trong dòng"; return out; }
+    const date = `${dm[3]}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
+
+    const side = /Đặt\s+mua|dat\s+mua/i.test(line) ? "BUY"
+               : /Đặt\s+bán|dat\s+ban/i.test(line) ? "SELL" : null;
+    if (!side) { out.loi = "Không nhận ra là lệnh mua hay bán"; return out; }
+
+    // Mã đứng ngay sau số lượng trong vế đặt lệnh.
+    const sm = line.match(/(?:mua|bán|ban)\s+[\d.,]+\s+([A-Z]{3})\b/i);
+    if (!sm) { out.loi = "Không tìm thấy mã chứng khoán"; return out; }
+    const symbol = sm[1].toUpperCase();
+
+    const fill = line.match(/Đã\s+khớp\s+([\d.,]+)\s+giá\s+([\d.,]+)/i)
+              || line.match(/da\s+khop\s+([\d.,]+)\s+gia\s+([\d.,]+)/i);
+    if (!fill) {
+      out.loi = "Chưa thấy phần đã khớp — lệnh chờ hoặc đã hủy thì không ghi vào sổ";
+      return out;
+    }
+
+    const qty = num(fill[1]);
+    const priceVND = num(fill[2]);
+    if (!qty || qty <= 0) { out.loi = "Số lượng khớp không đọc được"; return out; }
+    if (!priceVND || priceVND < 100) { out.loi = "Giá khớp không hợp lệ"; return out; }
+
+    // So với số đặt để báo cho người dùng biết đây là lệnh khớp một phần.
+    const ord = line.match(/(?:mua|bán|ban)\s+([\d.,]+)\s+[A-Z]{3}/i);
+    const ordered = ord ? num(ord[1]) : null;
+
+    out.tx = { type: side, symbol, qty, priceVND, date };
+    if (ordered && ordered !== qty) out.ghi_chu = `khớp một phần: đặt ${ordered}, khớp ${qty}`;
+    return out;
+  });
+}
+
+/** Chuyển tin nhắn TCBS thành các dòng lệnh để đưa vào luồng nhập hàng loạt. */
+export function tcbsToBatch(text) {
+  const rows = parseTcbsMessages(text);
+  const verb = { BUY: "MUA", SELL: "BAN" };
+  const lines = rows.filter((r) => r.tx).map((r) => {
+    const d = r.tx.date.split("-");
+    return `${verb[r.tx.type]} ${r.tx.symbol} ${r.tx.qty} ${r.tx.priceVND} ${d[2]}/${d[1]}/${d[0]}`;
+  });
+  return {
+    ok: true, rows,
+    doc_duoc: lines.length,
+    bo_qua: rows.filter((r) => r.loi).length,
+    text: lines.join("\n"),
+  };
+}
