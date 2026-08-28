@@ -772,11 +772,26 @@ export function parseBatch(userId, text) {
     trialError = trial.error || null;
   }
 
+  // Cảnh báo dòng trùng nhau trong chính lô này, và dòng đã có sẵn trong sổ.
+  const seen = new Map();
+  for (const r of good) {
+    const key = `${r.tx.date}|${r.tx.type}|${r.tx.symbol || ""}|${r.tx.qty || ""}|${r.tx.priceVND || r.tx.cash || ""}`;
+    if (seen.has(key)) r.canh_bao = `giống hệt dòng ${seen.get(key)} trong lô này`;
+    else seen.set(key, r.dong);
+  }
+  const daCo = findDuplicates(userId, good.map((r) => r.tx));
+  const daCoKey = new Set(daCo.map((t) => `${t.date}|${t.type}|${t.symbol || ""}|${t.qty || ""}|${t.priceVND || t.cash || ""}`));
+  for (const r of good) {
+    const key = `${r.tx.date}|${r.tx.type}|${r.tx.symbol || ""}|${r.tx.qty || ""}|${r.tx.priceVND || r.tx.cash || ""}`;
+    if (daCoKey.has(key) && !r.canh_bao) r.canh_bao = "sổ đã có giao dịch y hệt";
+  }
+
   return {
     ok: true,
     tong: rows.length,
     hop_le: good.length,
     loi: rows.filter((r) => r.loi).length,
+    canh_bao: good.filter((r) => r.canh_bao).length,
     rows,
     loi_tong_the: trialError,
   };
@@ -1072,20 +1087,61 @@ export function parseTcbsMessages(text) {
   });
 }
 
-/** Chuyển tin nhắn TCBS thành các dòng lệnh để đưa vào luồng nhập hàng loạt. */
+/**
+ * Chuyển tin nhắn TCBS thành các dòng lệnh để đưa vào luồng nhập hàng loạt.
+ *
+ * Có lọc trùng, vì dán tin nhắn là thao tác rất dễ lặp: cuộn lại lịch sử chat,
+ * chọn nhầm vùng, hoặc chép đi chép lại cùng một tin. Hai dòng giống nhau hoàn
+ * toàn về ngày, mã, số lượng và giá thì gần như chắc chắn là một lệnh bị chép
+ * hai lần, chứ không phải hai lệnh khớp trùng khít nhau.
+ *
+ * Trùng thì BỎ và nói rõ, không im lặng gộp: nếu đúng là hai lệnh thật thì
+ * người dùng phải biết mà nhập tay thêm, chứ mất một lệnh mua trong sổ tiền là
+ * chuyện lớn hơn nhiều so với phải gõ lại một dòng.
+ */
 export function tcbsToBatch(text) {
   const rows = parseTcbsMessages(text);
   const verb = { BUY: "MUA", SELL: "BAN" };
-  const lines = rows.filter((r) => r.tx).map((r) => {
+
+  const seen = new Map();
+  const lines = [];
+  for (const r of rows) {
+    if (!r.tx) continue;
+    const key = `${r.tx.date}|${r.tx.type}|${r.tx.symbol}|${r.tx.qty}|${r.tx.priceVND}`;
+    if (seen.has(key)) {
+      r.trung = true;
+      r.trung_voi_dong = seen.get(key);
+      continue;
+    }
+    seen.set(key, r.dong);
     const d = r.tx.date.split("-");
-    return `${verb[r.tx.type]} ${r.tx.symbol} ${r.tx.qty} ${r.tx.priceVND} ${d[2]}/${d[1]}/${d[0]}`;
-  });
+    lines.push(`${verb[r.tx.type]} ${r.tx.symbol} ${r.tx.qty} ${r.tx.priceVND} ${d[2]}/${d[1]}/${d[0]}`);
+  }
+
   return {
     ok: true, rows,
     doc_duoc: lines.length,
     bo_qua: rows.filter((r) => r.loi).length,
+    trung_lap: rows.filter((r) => r.trung).length,
     text: lines.join("\n"),
   };
+}
+
+/**
+ * Tìm giao dịch trong lô sắp ghi mà sổ đã có sẵn.
+ *
+ * Khác với lọc trùng bên trên (trùng trong cùng một lần dán), cái này bắt trường
+ * hợp dán lại tin nhắn của tuần trước đã nhập rồi. Chỉ CẢNH BÁO chứ không tự
+ * chặn — mua cùng một mã, cùng số lượng, cùng giá trong cùng một ngày là hiếm
+ * nhưng có thật, nên quyết định cuối để người dùng.
+ */
+export function findDuplicates(userId, txs) {
+  const existing = new Set(
+    loadTxs(userId).map((t) => `${t.date}|${t.type}|${t.symbol || ""}|${t.qty || ""}|${t.priceVND || t.cash || ""}`)
+  );
+  return txs.filter((t) =>
+    existing.has(`${t.date}|${t.type}|${t.symbol || ""}|${t.qty || ""}|${t.priceVND || t.cash || ""}`)
+  );
 }
 
 /* ==================== Sự kiện quyền gắn vào từng mã ==================== */

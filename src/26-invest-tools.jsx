@@ -201,7 +201,9 @@ function BatchEntry({ onClose, onSaved, flash }) {
         setText((t) => (t.trim() ? t.trim() + "\n" : "") + d.text);
         setPrev(null); setShowTcbs(false);
         const luuY = d.rows.filter((r) => r.ghi_chu);
-        flash(`Đọc được ${d.doc_duoc} lệnh${d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : ""}` +
+        flash(`Đọc được ${d.doc_duoc} lệnh` +
+              (d.trung_lap ? `, bỏ ${d.trung_lap} dòng trùng` : "") +
+              (d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : "") +
               (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
       })
       .catch((e) => setErr(e.message)).finally(() => setBusy(false));
@@ -245,6 +247,10 @@ THUONG CTS 500 20/08`}
             </div>
             <Button kind="outline" onClick={doTcbs} disabled={busy || !tcbs.trim()}
               style={{ width: "100%", fontSize: 12, padding: "8px" }}>Đọc tin nhắn</Button>
+            <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6, marginTop: 8 }}>
+              Dòng nào giống hệt dòng trước về ngày, mã, số lượng và giá thì bị bỏ — dán lặp
+              cùng một tin là chuyện thường. Nếu đúng là hai lệnh riêng thì thêm tay dòng thứ hai.
+            </div>
           </div>
         )}
 
@@ -259,12 +265,14 @@ THUONG CTS 500 20/08`}
             <div className="num" style={{ fontSize: 12, color: cssVar("--muted"), marginBottom: 8 }}>
               {prev.hop_le} dòng hợp lệ
               {prev.loi > 0 && <span style={{ color: cssVar("--red") }}> · {prev.loi} dòng lỗi</span>}
+              {prev.canh_bao > 0 && <span style={{ color: cssVar("--amber") }}> · {prev.canh_bao} dòng nghi trùng</span>}
             </div>
             {prev.rows.map((r) => (
               <div key={r.dong} className="num" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 4,
                 color: r.loi ? cssVar("--red") : cssVar("--ink") }}>
                 <span style={{ color: cssVar("--muted") }}>{r.dong}.</span>{" "}
                 {r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`}
+                {r.canh_bao && <span style={{ color: cssVar("--amber") }}>{"  ⚠ " + r.canh_bao}</span>}
               </div>
             ))}
             {prev.loi_tong_the && (

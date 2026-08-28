@@ -3335,7 +3335,7 @@ function BatchEntry({
       setPrev(null);
       setShowTcbs(false);
       const luuY = d.rows.filter(r => r.ghi_chu);
-      flash(`Đọc được ${d.doc_duoc} lệnh${d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : ""}` + (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
+      flash(`Đọc được ${d.doc_duoc} lệnh` + (d.trung_lap ? `, bỏ ${d.trung_lap} dòng trùng` : "") + (d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : "") + (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
   };
   const ready = prev && prev.loi === 0 && !prev.loi_tong_the && prev.hop_le > 0;
@@ -3416,7 +3416,14 @@ THUONG CTS 500 20/08`), React.createElement("div", {
       fontSize: 12,
       padding: "8px"
     }
-  }, "Đọc tin nhắn")), React.createElement("textarea", {
+  }, "Đọc tin nhắn"), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      lineHeight: 1.6,
+      marginTop: 8
+    }
+  }, "Dòng nào giống hệt dòng trước về ngày, mã, số lượng và giá thì bị bỏ — dán lặp cùng một tin là chuyện thường. Nếu đúng là hai lệnh riêng thì thêm tay dòng thứ hai.")), React.createElement("textarea", {
     rows: 8,
     value: text,
     placeholder: "Dán hoặc gõ các lệnh vào đây…",
@@ -3451,7 +3458,11 @@ THUONG CTS 500 20/08`), React.createElement("div", {
     style: {
       color: cssVar("--red")
     }
-  }, " · ", prev.loi, " dòng lỗi")), prev.rows.map(r => React.createElement("div", {
+  }, " · ", prev.loi, " dòng lỗi"), prev.canh_bao > 0 && React.createElement("span", {
+    style: {
+      color: cssVar("--amber")
+    }
+  }, " · ", prev.canh_bao, " dòng nghi trùng")), prev.rows.map(r => React.createElement("div", {
     key: r.dong,
     className: "num",
     style: {
@@ -3464,7 +3475,11 @@ THUONG CTS 500 20/08`), React.createElement("div", {
     style: {
       color: cssVar("--muted")
     }
-  }, r.dong, "."), " ", r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`)), prev.loi_tong_the && React.createElement("div", {
+  }, r.dong, "."), " ", r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`, r.canh_bao && React.createElement("span", {
+    style: {
+      color: cssVar("--amber")
+    }
+  }, "  ⚠ " + r.canh_bao))), prev.loi_tong_the && React.createElement("div", {
     className: "box",
     style: {
       padding: 12,
