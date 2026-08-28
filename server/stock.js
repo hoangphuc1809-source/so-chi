@@ -1,5 +1,5 @@
-import { q, uid, now } from "./db.js";
-import { rebuild, settleDate } from "./ledger.js";
+import { q, db, uid, now } from "./db.js";
+import { rebuild, settleDate, daysBetween } from "./ledger.js";
 
 /** Lấy đúng mảng giao dịch (chưa hủy) để đưa vào rebuild — nguyên văn object gốc. */
 export function loadTxs(userId) {
@@ -278,4 +278,512 @@ export function history(userId, limit = 200, includeVoided = false) {
 export function realizedTrades(userId) {
   const st = state(userId);
   return (st.realized || []).slice().reverse();
+}
+
+/* ==================== GĐ2: Tiền T+2 ==================== */
+
+/**
+ * Tách tiền mặt thành phần đã về và phần còn chờ.
+ *
+ * Engine FIFO cộng tiền bán ngay tại ngày bán — đúng về sổ sách, nhưng không
+ * phải số tiền rút ra hay mua tiếp được hôm nay. Tiền bán về T+2 giống cổ
+ * phiếu mua. Tính ở đây, KHÔNG sửa ledger.js: engine đó đã chạy với tiền thật
+ * và mọi thay đổi trong nó sẽ lan ra toàn bộ số liệu lịch sử.
+ *
+ * Chỉ là lớp hiển thị — không ảnh hưởng NAV, giá vốn hay lãi/lỗ.
+ */
+export function cashFlow(userId) {
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+  const today = new Date().toISOString().slice(0, 10);
+
+  const pending = [];
+  for (const r of st.realized || []) {
+    const settle = settleDate(r.date);
+    if (settle > today) {
+      pending.push({
+        symbol: r.symbol, qty: r.qty, sell_date: r.date,
+        settle_date: settle, amount: r.proceedsNet,
+      });
+    }
+  }
+  const pendingTotal = pending.reduce((s, p) => s + p.amount, 0);
+
+  return {
+    cash: st.cash,                        // số sổ sách, gồm cả tiền chưa về
+    pending_in: pendingTotal,             // tiền bán đang trên đường về
+    available: st.cash - pendingTotal,    // thực sự dùng được hôm nay
+    margin_debt: st.cash < 0 ? -st.cash : 0,
+    pending: pending.sort((a, b) => (a.settle_date < b.settle_date ? -1 : 1)),
+  };
+}
+
+/* ==================== GĐ2: Đối chiếu với công ty chứng khoán ==================== */
+
+/**
+ * Ngưỡng cho phép tự ghi bút toán điều chỉnh.
+ *
+ * Ngưỡng cũ trong thiết kế GĐ2 là "2% NAV hoặc 5 triệu". Tôi đổi, vì ở quy mô
+ * sổ hiện tại hai vế đó gần trùng nhau (2% của 282tr ≈ 5,6tr) nên thực chất chỉ
+ * còn một ngưỡng 5 triệu — quá rộng. Một lệnh mua 100 cổ giá 45 nghìn là 4,5
+ * triệu, vẫn lọt dưới ngưỡng và sẽ bị ghi nhầm thành lãi vay, sai vĩnh viễn
+ * trong sổ.
+ *
+ * Ngưỡng ở đây bám theo thứ thực sự sinh ra chênh lệch hợp lệ: lãi vay margin.
+ * Lãi TCBS quanh 0,04%/ngày, nhân số ngày kể từ mốc đối chiếu trước, nhân 3 làm
+ * biên an toàn cho phí lặt vặt. Sàn 300 nghìn để lần đối chiếu sát nhau không
+ * ra ngưỡng gần bằng 0.
+ */
+const DAILY_MARGIN_RATE = 0.0004;
+const SAFETY_FACTOR = 3;
+const FLOOR = 300_000;
+
+function autoThreshold(debt, days) {
+  return Math.max(FLOOR, Math.round(debt * DAILY_MARGIN_RATE * Math.max(days, 1) * SAFETY_FACTOR));
+}
+
+export function lastReconcile(userId) {
+  return q.get("SELECT * FROM stock_reconcile WHERE user_id=? ORDER BY date DESC, created_at DESC LIMIT 1", userId) || null;
+}
+
+/**
+ * So sổ với số thật đọc từ app công ty chứng khoán. CHỈ phân tích, không ghi.
+ *
+ * Quy tắc quan trọng: nếu số lượng cổ phiếu lệch thì tuyệt đối không đề xuất
+ * ghi điều chỉnh tiền. Lệch số lượng nghĩa là thiếu hẳn một lệnh mua hoặc bán,
+ * và ghi một bút toán tiền lên trên đó chỉ che mất lỗi thật chứ không sửa được
+ * gì — giá vốn vẫn sai, lãi lỗ vẫn sai.
+ */
+export function checkAgainstBroker(userId, input) {
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+
+  const date = String(input.date || "").slice(0, 10);
+  if (!isDate(date)) throw new Error("Ngày không hợp lệ");
+  if (input.cash === undefined || input.cash === null || input.cash === "") {
+    throw new Error("Cần nhập số dư tiền thật từ công ty chứng khoán");
+  }
+  const cashBroker = Math.round(Number(input.cash));
+  if (!Number.isFinite(cashBroker)) throw new Error("Số dư tiền không hợp lệ");
+
+  const diff = cashBroker - st.cash;
+
+  // Đối chiếu vị thế nếu người dùng có nhập
+  const raw = input.positions && typeof input.positions === "object" ? input.positions : null;
+  const posDiff = [];
+  if (raw) {
+    const book = Object.fromEntries(Object.entries(st.positions).map(([k, v]) => [k, v.qty]));
+    const broker = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const sym = String(k).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(sym)) throw new Error(`Mã không hợp lệ: ${k}`);
+      broker[sym] = Math.round(Number(v) || 0);
+    }
+    for (const sym of new Set([...Object.keys(book), ...Object.keys(broker)])) {
+      const b = book[sym] || 0, r = broker[sym] || 0;
+      if (b !== r) posDiff.push({ symbol: sym, so_sach: b, thuc_te: r, lech: r - b });
+    }
+  }
+
+  const prev = lastReconcile(userId);
+  const days = prev ? Math.max(daysBetween(prev.date, date), 1) : 30;
+  const debt = st.cash < 0 ? -st.cash : 0;
+  const threshold = autoThreshold(debt, days);
+
+  const positionsOk = !raw || posDiff.length === 0;
+  let canAutoWrite = true;
+  let reason = null;
+
+  if (diff === 0) {
+    canAutoWrite = false;
+    reason = "Không lệch, không cần ghi gì.";
+  } else if (!positionsOk) {
+    canAutoWrite = false;
+    reason = "Số lượng cổ phiếu lệch — gần như chắc chắn thiếu một lệnh mua hoặc bán. " +
+             "Phải nhập bổ sung lệnh còn thiếu, không được ghi điều chỉnh tiền để lấp.";
+  } else if (Math.abs(diff) > threshold) {
+    canAutoWrite = false;
+    reason = `Lệch ${fmtVnd(Math.abs(diff))} vượt ngưỡng ${fmtVnd(threshold)} cho ${days} ngày. ` +
+             "Chênh lệch cỡ này hiếm khi là lãi vay — kiểm tra lại xem có giao dịch nào chưa nhập.";
+  } else if (!raw) {
+    reason = "Chưa đối chiếu số lượng cổ phiếu. Nên nhập để chắc chắn không thiếu lệnh nào.";
+  }
+
+  return {
+    date,
+    tien_so_sach: st.cash,
+    tien_thuc_te: cashBroker,
+    lech: diff,
+    huong: diff === 0 ? "khop" : diff > 0 ? "thuc_te_nhieu_hon" : "thuc_te_it_hon",
+    nguong: threshold,
+    so_ngay: days,
+    moc_truoc: prev ? prev.date : null,
+    du_no_margin: debt,
+    vi_the_khop: positionsOk,
+    lech_vi_the: posDiff,
+    tu_ghi_duoc: canAutoWrite,
+    ghi_chu: reason,
+    goi_y_loai: diff < 0 ? "INTEREST" : "ADJUSTMENT",
+  };
+}
+
+const ADJ_KINDS = {
+  INTEREST: "Lãi vay và phí",
+  DIVIDEND_CASH: "Cổ tức tiền mặt",
+  ADJUSTMENT: "Điều chỉnh khác",
+};
+
+/**
+ * Ghi bút toán điều chỉnh sau khi đối chiếu, rồi đóng mốc khóa sổ.
+ *
+ * Kiểm tra ngưỡng lại ở đây chứ không tin phía giao diện — nút bấm có thể bị
+ * gọi thẳng qua API.
+ */
+export function applyReconcile(userId, input) {
+  const chk = checkAgainstBroker(userId, input);
+  if (chk.error) throw new Error(chk.error);
+  if (!chk.tu_ghi_duoc) throw new Error(chk.ghi_chu || "Không đủ điều kiện ghi tự động");
+
+  const kind = String(input.kind || chk.goi_y_loai).toUpperCase();
+  if (!ADJ_KINDS[kind]) throw new Error("Loại bút toán không hợp lệ");
+
+  const note = (input.note ? String(input.note).slice(0, 150) : ADJ_KINDS[kind]) +
+               ` (đối chiếu ${chk.date})`;
+  const { tx } = appendTx(userId, { type: kind, date: chk.date, cash: chk.lech, note });
+
+  const id = `rc${Date.now().toString(36)}`;
+  q.run(
+    `INSERT INTO stock_reconcile (id,user_id,date,cash_broker,cash_book,diff,positions_ok,adjustment_id,note,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    id, userId, chk.date, chk.tien_thuc_te, chk.tien_so_sach, chk.lech,
+    chk.vi_the_khop ? 1 : 0, tx.id, note, Date.now()
+  );
+
+  return { ...chk, da_ghi: tx, moc_id: id };
+}
+
+/** Đóng mốc mà không ghi gì — dùng khi đối chiếu ra khớp tuyệt đối. */
+export function markReconciled(userId, input) {
+  const chk = checkAgainstBroker(userId, input);
+  if (chk.error) throw new Error(chk.error);
+  if (chk.lech !== 0) throw new Error("Còn lệch tiền, không thể đóng mốc suông");
+  if (!chk.vi_the_khop) throw new Error("Số lượng cổ phiếu còn lệch");
+
+  const id = `rc${Date.now().toString(36)}`;
+  q.run(
+    `INSERT INTO stock_reconcile (id,user_id,date,cash_broker,cash_book,diff,positions_ok,adjustment_id,note,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    id, userId, chk.date, chk.tien_thuc_te, chk.tien_so_sach, 0, 1, null, "Khớp tuyệt đối", Date.now()
+  );
+  return { ...chk, moc_id: id };
+}
+
+export function reconcileHistory(userId, limit = 24) {
+  return q.all(
+    "SELECT * FROM stock_reconcile WHERE user_id=? ORDER BY date DESC, created_at DESC LIMIT ?",
+    userId, limit
+  );
+}
+
+function fmtVnd(n) {
+  return Math.round(n).toLocaleString("vi-VN") + "đ";
+}
+
+/* ==================== GĐ3: Báo cáo theo kỳ ==================== */
+
+/** Nhãn kỳ theo quy ước đang dùng ở dashboard MSI: 2026W20 / 2026 M05 / 2026 Q2. */
+function periodOf(dateISO, kind) {
+  const d = new Date(dateISO + "T00:00:00Z");
+  const y = d.getUTCFullYear();
+  if (kind === "year") return String(y);
+  if (kind === "quarter") return `${y} Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
+  if (kind === "month") return `${y} M${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  // ISO week
+  const t = new Date(Date.UTC(y, d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const wk = Math.ceil(((t - start) / 86400000 + 1) / 7);
+  return `${t.getUTCFullYear()}W${String(wk).padStart(2, "0")}`;
+}
+
+/**
+ * Báo cáo lãi lỗ đã chốt theo kỳ.
+ *
+ * Chỉ tính lãi/lỗ ĐÃ THỰC HIỆN — tức đã bán xong. Lãi lỗ tạm tính của phần
+ * đang giữ cố tình không gộp vào đây, vì nó đổi theo giá từng phút và sẽ làm
+ * báo cáo kỳ đã đóng thay đổi mỗi lần mở lại.
+ */
+export function periodReport(userId, kind = "month", limit = 12) {
+  if (!["week", "month", "quarter", "year"].includes(kind)) {
+    throw new Error("Kỳ báo cáo không hợp lệ");
+  }
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+
+  const buckets = new Map();
+  const touch = (p) => {
+    if (!buckets.has(p)) {
+      buckets.set(p, {
+        ky: p, lai_da_chot: 0, so_lan_ban: 0, so_lan_lai: 0, so_lan_lo: 0,
+        tien_ban: 0, gia_von_ban: 0, nap: 0, rut: 0, lai_vay: 0, co_tuc: 0, dieu_chinh: 0,
+      });
+    }
+    return buckets.get(p);
+  };
+
+  for (const r of st.realized || []) {
+    const b = touch(periodOf(r.date, kind));
+    b.lai_da_chot += r.pl;
+    b.so_lan_ban += 1;
+    b.tien_ban += r.proceedsNet;
+    b.gia_von_ban += r.costBasis;
+    if (r.pl >= 0) b.so_lan_lai += 1; else b.so_lan_lo += 1;
+  }
+
+  for (const t of loadTxs(userId)) {
+    const b = touch(periodOf(t.date, kind));
+    if (t.type === "DEPOSIT") b.nap += t.cash;
+    else if (t.type === "WITHDRAW") b.rut += t.cash;
+    else if (t.type === "INTEREST") b.lai_vay += t.cash;
+    else if (t.type === "DIVIDEND_CASH") b.co_tuc += t.cash;
+    else if (t.type === "ADJUSTMENT") b.dieu_chinh += t.cash;
+  }
+
+  const rows = [...buckets.values()]
+    .map((b) => ({
+      ...b,
+      ty_suat: b.gia_von_ban > 0 ? (b.lai_da_chot / b.gia_von_ban) * 100 : 0,
+      ty_le_thang: b.so_lan_ban > 0 ? (b.so_lan_lai / b.so_lan_ban) * 100 : 0,
+      rong: b.lai_da_chot + b.lai_vay + b.co_tuc + b.dieu_chinh,
+    }))
+    .sort((a, b) => (a.ky < b.ky ? 1 : -1))
+    .slice(0, limit);
+
+  return { ok: true, kind, rows };
+}
+
+/** Lãi lỗ đã chốt gom theo mã — xem mã nào thực sự sinh tiền. */
+export function bySymbolReport(userId) {
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+
+  const m = new Map();
+  const touch = (s) => {
+    if (!m.has(s)) m.set(s, { symbol: s, lai_da_chot: 0, so_lan_ban: 0, so_lan_lai: 0, gia_von_ban: 0, ngay_giu_tb: 0, _hold: 0 });
+    return m.get(s);
+  };
+  for (const r of st.realized || []) {
+    const b = touch(r.symbol);
+    b.lai_da_chot += r.pl;
+    b.so_lan_ban += 1;
+    b.gia_von_ban += r.costBasis;
+    b._hold += r.holdDays;
+    if (r.pl >= 0) b.so_lan_lai += 1;
+  }
+  const rows = [...m.values()].map((b) => {
+    const { _hold, ...rest } = b;
+    return {
+      ...rest,
+      ngay_giu_tb: b.so_lan_ban ? Math.round(_hold / b.so_lan_ban) : 0,
+      ty_suat: b.gia_von_ban > 0 ? (b.lai_da_chot / b.gia_von_ban) * 100 : 0,
+      dang_giu: st.positions[b.symbol] ? st.positions[b.symbol].qty : 0,
+    };
+  }).sort((a, b) => b.lai_da_chot - a.lai_da_chot);
+
+  return { ok: true, rows };
+}
+
+/* ==================== GĐ3: Mốc giá theo dõi ==================== */
+
+/**
+ * Mốc cắt lỗ / chốt lời do CHÍNH NGƯỜI DÙNG đặt cho từng mã.
+ *
+ * Đây là lời nhắc về ngưỡng bạn đã tự quyết từ trước, không phải khuyến nghị
+ * mua bán. App không sinh mốc, không gợi ý mức nào nên đặt, chỉ báo khi giá
+ * chạm mốc bạn đã ghi.
+ */
+export function getAlerts(userId) {
+  return q.all("SELECT * FROM stock_alert WHERE user_id=? ORDER BY symbol", userId);
+}
+
+export function setAlert(userId, input) {
+  const sym = String(input.symbol || "").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(sym)) throw new Error("Mã chứng khoán phải đúng 3 chữ cái");
+
+  const num = (v) => {
+    if (v === "" || v === null || v === undefined) return null;
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n <= 0) throw new Error("Mốc giá không hợp lệ");
+    if (n < 100) throw new Error("Nhập giá theo đồng, ví dụ 25900 chứ không phải 25,9");
+    return n;
+  };
+  const stop = num(input.stop);
+  const target = num(input.target);
+  if (stop === null && target === null) {
+    q.run("DELETE FROM stock_alert WHERE user_id=? AND symbol=?", userId, sym);
+    return { symbol: sym, deleted: true };
+  }
+  if (stop !== null && target !== null && stop >= target) {
+    throw new Error("Mốc cắt lỗ phải thấp hơn mốc chốt lời");
+  }
+
+  const ex = q.get("SELECT id FROM stock_alert WHERE user_id=? AND symbol=?", userId, sym);
+  if (ex) {
+    q.run("UPDATE stock_alert SET stop=?, target=?, note=?, updated_at=? WHERE id=?",
+      stop, target, input.note ? String(input.note).slice(0, 150) : null, Date.now(), ex.id);
+    return { symbol: sym, stop, target, updated: true };
+  }
+  q.run("INSERT INTO stock_alert (id,user_id,symbol,stop,target,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+    uid(), userId, sym, stop, target, input.note ? String(input.note).slice(0, 150) : null, Date.now(), Date.now());
+  return { symbol: sym, stop, target, created: true };
+}
+
+/** Đối chiếu mốc đã đặt với giá hiện tại. Chỉ báo mã đang thực sự giữ. */
+export function checkAlerts(userId, prices = {}) {
+  const st = state(userId);
+  if (st.error) return { error: st.error };
+  const hits = [];
+  for (const a of getAlerts(userId)) {
+    const pos = st.positions[a.symbol];
+    if (!pos) continue;
+    const px = prices[a.symbol];
+    if (!px) continue;
+    if (a.stop && px <= a.stop) {
+      hits.push({ symbol: a.symbol, loai: "cat_lo", moc: a.stop, gia: px, qty: pos.qty, note: a.note });
+    } else if (a.target && px >= a.target) {
+      hits.push({ symbol: a.symbol, loai: "chot_loi", moc: a.target, gia: px, qty: pos.qty, note: a.note });
+    }
+  }
+  return { ok: true, hits };
+}
+
+/* ==================== GĐ2: Nhập hàng loạt ==================== */
+
+/**
+ * Đọc nhiều giao dịch từ text dán vào, mỗi dòng một lệnh.
+ *
+ * Định dạng do app quy định, KHÔNG phải định dạng tin nhắn của công ty chứng
+ * khoán — tôi chưa có mẫu thật nên không đoán. Khi có mẫu, thêm một lớp dịch
+ * phía trước hàm này là dùng lại được toàn bộ phần kiểm tra bên dưới.
+ *
+ *   MUA HCM 5000 25900 13/08
+ *   BAN LPB 1000 49400 25/08
+ *   NAP 50tr 01/08
+ *
+ * Trả về danh sách đã phân tích kèm lỗi từng dòng để xem trước. KHÔNG ghi gì.
+ */
+export function parseBatch(userId, text) {
+  const VERBS = {
+    MUA: "BUY", BUY: "BUY", B: "BUY",
+    BAN: "SELL", SELL: "SELL", S: "SELL",
+    NAP: "DEPOSIT", RUT: "WITHDRAW",
+    COTUC: "DIVIDEND_CASH", LAIVAY: "INTEREST", DIEUCHINH: "ADJUSTMENT",
+    THUONG: "STOCK_BONUS",
+  };
+  const today = new Date().toISOString().slice(0, 10);
+
+  const parseMoney = (s) => {
+    const t = String(s).toLowerCase().replace(/[.,\s]/g, (m) => (m === "," ? "." : ""));
+    const m = t.match(/^(-?[\d.]+)(tr|ty|k)?$/);
+    if (!m) return null;
+    let v = parseFloat(m[1]);
+    if (!Number.isFinite(v)) return null;
+    if (m[2] === "tr") v *= 1e6;
+    else if (m[2] === "ty") v *= 1e9;
+    else if (m[2] === "k") v *= 1e3;
+    return Math.round(v);
+  };
+  const parseDay = (s) => {
+    if (!s) return today;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
+    if (!m) return null;
+    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : new Date().getFullYear();
+    const d = `${y}-${String(+m[2]).padStart(2, "0")}-${String(+m[1]).padStart(2, "0")}`;
+    return isDate(d) ? d : null;
+  };
+
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  const rows = lines.map((line, i) => {
+    const p = line.split(/\s+/);
+    const verb = (p[0] || "").toUpperCase().replace(/[^A-Z]/g, "");
+    const type = VERBS[verb];
+    if (!type) return { dong: i + 1, raw: line, loi: `Không hiểu lệnh "${p[0]}"` };
+
+    try {
+      if (["BUY", "SELL"].includes(type)) {
+        const symbol = (p[1] || "").toUpperCase();
+        const qty = parseMoney(p[2]);
+        const priceVND = parseMoney(p[3]);
+        const date = parseDay(p[4]);
+        if (!/^[A-Z]{3}$/.test(symbol)) throw new Error("Mã phải đúng 3 chữ cái");
+        if (!qty || qty <= 0) throw new Error("Số lượng không hợp lệ");
+        if (!priceVND || priceVND < 100) throw new Error("Giá phải theo đồng, ví dụ 25900");
+        if (!date) throw new Error("Ngày không hợp lệ");
+        return { dong: i + 1, raw: line, tx: { type, symbol, qty, priceVND, date } };
+      }
+      if (type === "STOCK_BONUS") {
+        const symbol = (p[1] || "").toUpperCase();
+        const qty = parseMoney(p[2]);
+        const date = parseDay(p[3]);
+        if (!/^[A-Z]{3}$/.test(symbol)) throw new Error("Mã phải đúng 3 chữ cái");
+        if (!qty || qty <= 0) throw new Error("Số lượng không hợp lệ");
+        if (!date) throw new Error("Ngày không hợp lệ");
+        return { dong: i + 1, raw: line, tx: { type, symbol, qty, date } };
+      }
+      const cash = parseMoney(p[1]);
+      const date = parseDay(p[2]);
+      if (cash === null || cash === 0) throw new Error("Số tiền không hợp lệ");
+      if (!date) throw new Error("Ngày không hợp lệ");
+      return { dong: i + 1, raw: line, tx: { type, cash: Math.abs(cash), date } };
+    } catch (e) {
+      return { dong: i + 1, raw: line, loi: e.message };
+    }
+  });
+
+  // Dựng thử toàn bộ để bắt lỗi thứ tự (bán trước khi mua, bán quá số giữ...)
+  const good = rows.filter((r) => r.tx);
+  let trialError = null;
+  if (good.length) {
+    let seq = nextSeq(userId);
+    const trial = rebuild([
+      ...loadTxs(userId),
+      ...good.map((r) => ({ id: `tmp${seq}`, seq: seq++, ...r.tx })),
+    ]);
+    trialError = trial.error || null;
+  }
+
+  return {
+    ok: true,
+    tong: rows.length,
+    hop_le: good.length,
+    loi: rows.filter((r) => r.loi).length,
+    rows,
+    loi_tong_the: trialError,
+  };
+}
+
+/** Ghi cả lô sau khi người dùng xem trước và xác nhận. Tất cả hoặc không gì cả. */
+export function commitBatch(userId, text) {
+  const parsed = parseBatch(userId, text);
+  if (parsed.loi > 0) throw new Error(`Còn ${parsed.loi} dòng lỗi, sửa hết rồi hãy ghi`);
+  if (parsed.loi_tong_the) throw new Error(parsed.loi_tong_the);
+  if (!parsed.hop_le) throw new Error("Không có dòng nào để ghi");
+
+  // node:sqlite khong co helper transaction() nhu better-sqlite3 -> tu mo/dong.
+  // Ghi ca lo phai la tat ca hoac khong gi ca: mot lo ghi nua chung se de lai
+  // so o trang thai vo nghia (vi du mua roi ma thieu lenh ban truoc do).
+  const written = [];
+  db.exec("BEGIN");
+  try {
+    for (const r of parsed.rows) {
+      if (!r.tx) continue;
+      written.push(appendTx(userId, r.tx).tx);
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return { ok: true, da_ghi: written.length, txs: written };
 }

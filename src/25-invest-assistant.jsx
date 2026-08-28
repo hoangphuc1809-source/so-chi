@@ -20,6 +20,8 @@ function Invest({ flash }) {
   const [hist, setHist] = useState(null);
   const [showHist, setShowHist] = useState(false);
   const [showVoided, setShowVoided] = useState(false);
+  const [tool, setTool] = useState(null);      // reconcile | batch | report | alerts
+  const [flow, setFlow] = useState(null);      // tien T+2
 
   const load = useCallback(() => {
     setBusy(true);
@@ -28,6 +30,7 @@ function Invest({ flash }) {
       .catch((e) => setErr(e.message))
       .finally(() => setBusy(false));
     api(`/stock/history?limit=200${showVoided ? "&voided=1" : ""}`).then(setHist).catch(() => {});
+    api("/stock/cashflow").then(setFlow).catch(() => {});
   }, [showVoided]);
 
   useEffect(load, [load]);
@@ -50,10 +53,9 @@ function Invest({ flash }) {
         <div className="box" style={{ padding: 16 }}>
           <div className="num label">Cách hoạt động</div>
           <p style={{ fontSize: 13, color: cssVar("--muted"), lineHeight: 1.7, marginTop: 10, marginBottom: 0 }}>
-            Sổ Chi không tự tính danh mục. Số liệu do <b>portfolio-bot</b> trên máy chủ
-            hermes-gateway tính từ sổ giao dịch FIFO rồi đẩy sang đây theo lịch.
-            Nếu tab này trống, kiểm tra dịch vụ <span className="num">portfolio-bot</span> và
-            timer <span className="num">portfolio-snapshot</span> bên đó.
+            Sổ giao dịch nằm ngay trong Sổ Chi và được tính lại bằng phương pháp FIFO mỗi lần
+            mở. Chưa có gì ở đây nghĩa là sổ còn trống — bấm <b>+ Giao dịch</b> để nhập lệnh
+            đầu tiên, hoặc <b>Nhập nhiều</b> nếu muốn dán cả danh mục vào một lần.
           </p>
         </div>
       </div>
@@ -74,11 +76,12 @@ function Invest({ flash }) {
         </div>
       )}
 
-      <div className="between" style={{ marginBottom: 4 }}>
-        <span />
-        <Button kind="outline" onClick={() => setTrade({})} style={{ padding: "6px 14px", fontSize: 13 }}>
-          + Giao dịch
-        </Button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginBottom: 8 }}>
+        <Button kind="outline" onClick={() => setTool("report")} style={{ padding: "6px 12px", fontSize: 12 }}>Báo cáo</Button>
+        <Button kind="outline" onClick={() => setTool("alerts")} style={{ padding: "6px 12px", fontSize: 12 }}>Mốc giá</Button>
+        <Button kind="outline" onClick={() => setTool("reconcile")} style={{ padding: "6px 12px", fontSize: 12 }}>Đối chiếu</Button>
+        <Button kind="outline" onClick={() => setTool("batch")} style={{ padding: "6px 12px", fontSize: 12 }}>Nhập nhiều</Button>
+        <Button kind="outline" onClick={() => setTrade({})} style={{ padding: "6px 12px", fontSize: 12 }}>+ Giao dịch</Button>
       </div>
 
       <section style={{ marginBottom: 24 }}>
@@ -141,8 +144,32 @@ function Invest({ flash }) {
             color: s.margin_debt > 0 ? cssVar("--red") : cssVar("--ink") }}>
             {short(s.margin_debt > 0 ? s.margin_debt : s.cash)}
           </div>
+          {flow && flow.pending_in > 0 && (
+            <div className="num" style={{ fontSize: 11, color: cssVar("--amber"), marginTop: 4 }}>
+              {short(flow.pending_in)} chưa về
+            </div>
+          )}
         </div>
       </section>
+
+      {flow && flow.pending_in > 0 && (
+        <section className="box" style={{ padding: 14, marginBottom: 20 }}>
+          <div className="between">
+            <span style={{ fontSize: 13 }}>Tiền bán đang về</span>
+            <span className="num" style={{ fontSize: 14, fontWeight: 600 }}>
+              dùng được {short(flow.available)}
+            </span>
+          </div>
+          {flow.pending.map((p, i) => (
+            <div key={i} className="num" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 6 }}>
+              {p.symbol} {nf.format(p.qty)} cp bán {p.sell_date} · về {p.settle_date} · {short(p.amount)}
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 8, lineHeight: 1.6 }}>
+            Sổ đã ghi nhận số tiền này ngay lúc bán, nhưng phải chờ T+2 mới rút hay mua tiếp được.
+          </div>
+        </section>
+      )}
 
       {s.margin_debt > 0 && s.stock_value > 0 && (
         <section style={{ marginBottom: 24 }}>
@@ -290,6 +317,14 @@ function Invest({ flash }) {
         <TradeForm flash={flash} onClose={() => setTrade(null)}
           onSaved={() => { setTrade(null); load(); }} />
       )}
+      {tool === "reconcile" && (
+        <Reconcile flash={flash} onClose={() => setTool(null)} onSaved={load} />
+      )}
+      {tool === "batch" && (
+        <BatchEntry flash={flash} onClose={() => setTool(null)} onSaved={load} />
+      )}
+      {tool === "report" && <InvestReport onClose={() => setTool(null)} />}
+      {tool === "alerts" && <PriceAlerts flash={flash} onClose={() => setTool(null)} />}
     </div>
   );
 }

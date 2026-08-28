@@ -132,6 +132,35 @@ CREATE TABLE IF NOT EXISTS stock_tx (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_tx_user ON stock_tx(user_id, date, seq);
 
+-- Moc cat lo / chot loi do chinh nguoi dung dat. App khong tu sinh moc nao.
+CREATE TABLE IF NOT EXISTS stock_alert (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  symbol     TEXT NOT NULL,
+  stop       INTEGER,
+  target     INTEGER,
+  note       TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_alert_uniq ON stock_alert(user_id, symbol);
+
+-- Moc doi chieu voi so lieu that tu cong ty chung khoan.
+-- Moi lan doi chieu la mot moc khoa so: du lieu truoc moc coi nhu da xac nhan.
+CREATE TABLE IF NOT EXISTS stock_reconcile (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date          TEXT NOT NULL,
+  cash_broker   INTEGER NOT NULL,
+  cash_book     INTEGER NOT NULL,
+  diff          INTEGER NOT NULL,
+  positions_ok  INTEGER NOT NULL DEFAULT 1,
+  adjustment_id TEXT,
+  note          TEXT,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_rec_user ON stock_reconcile(user_id, date);
+
 CREATE TABLE IF NOT EXISTS portfolio_snapshot (
   user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   payload     TEXT NOT NULL,

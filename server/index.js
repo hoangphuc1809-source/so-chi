@@ -9,7 +9,10 @@ import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices } from "./prices.js";
 import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
-         appendTx, undoLast, history as stockHistory, realizedTrades, txTypes } from "./stock.js";
+         appendTx, undoLast, history as stockHistory, realizedTrades, txTypes,
+         cashFlow, checkAgainstBroker, applyReconcile, markReconciled, reconcileHistory, lastReconcile,
+         periodReport, bySymbolReport, getAlerts, setAlert, checkAlerts,
+         parseBatch, commitBatch } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -623,6 +626,50 @@ route("GET", "/api/stock/export", (ctx) => {
     served_at: new Date().toISOString(),
   };
 }, { auth: false });
+
+/* ---------- GĐ2: tiền T+2 ---------- */
+
+route("GET", "/api/stock/cashflow", (ctx) => cashFlow(ctx.userId));
+
+/* ---------- GĐ2: đối chiếu với công ty chứng khoán ---------- */
+
+// Chỉ phân tích, không ghi gì. Giao diện gọi cái này trước để xem trước.
+route("POST", "/api/stock/broker/check", (ctx) => checkAgainstBroker(ctx.userId, ctx.body));
+
+// Ghi bút toán điều chỉnh + đóng mốc. Ngưỡng được kiểm lại trong applyReconcile,
+// không tin phía giao diện vì route này gọi thẳng được.
+route("POST", "/api/stock/broker/apply", (ctx) => applyReconcile(ctx.userId, ctx.body));
+
+// Đóng mốc khi khớp tuyệt đối, không sinh bút toán nào.
+route("POST", "/api/stock/broker/mark", (ctx) => markReconciled(ctx.userId, ctx.body));
+
+route("GET", "/api/stock/broker/history", (ctx) => ({
+  ok: true, moc_gan_nhat: lastReconcile(ctx.userId), rows: reconcileHistory(ctx.userId),
+}));
+
+/* ---------- GĐ2: nhập hàng loạt ---------- */
+
+route("POST", "/api/stock/batch/preview", (ctx) => parseBatch(ctx.userId, ctx.body?.text));
+route("POST", "/api/stock/batch/commit", (ctx) => commitBatch(ctx.userId, ctx.body?.text));
+
+/* ---------- GĐ3: báo cáo ---------- */
+
+route("GET", "/api/stock/report", (ctx) =>
+  periodReport(ctx.userId, ctx.query?.kind || "month", Math.min(Number(ctx.query?.limit) || 12, 60)));
+
+route("GET", "/api/stock/report/symbols", (ctx) => bySymbolReport(ctx.userId));
+
+/* ---------- GĐ3: mốc giá do người dùng đặt ---------- */
+
+route("GET", "/api/stock/alerts", (ctx) => ({ ok: true, rows: getAlerts(ctx.userId) }));
+route("POST", "/api/stock/alerts", (ctx) => setAlert(ctx.userId, ctx.body));
+
+route("GET", "/api/stock/alerts/check", async (ctx) => {
+  const snap = stockPositions(ctx.userId);
+  if (snap.error) return { error: snap.error };
+  const live = await fetchPrices(snap.positions.map((p) => p.symbol));
+  return checkAlerts(ctx.userId, live.prices || {});
+});
 
 route("GET", "/api/stock/reconcile", (ctx) => {
   const st = stockState(ctx.userId);
