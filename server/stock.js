@@ -1014,3 +1014,36 @@ export function tcbsToBatch(text) {
     text: lines.join("\n"),
   };
 }
+
+/* ==================== Sự kiện quyền gắn vào từng mã ==================== */
+
+/**
+ * Gom sự kiện quyền theo mã để hiển thị ngay trên dòng cổ phiếu.
+ *
+ * Lấy cả sự kiện vừa qua trong 45 ngày, không chỉ sự kiện sắp tới: cổ tức
+ * thường trả sau ngày chốt hàng tháng, và cái người ta cần nhớ là "đã qua ngày
+ * chốt rồi, tiền chưa về" chứ không phải chỉ mỗi lịch phía trước.
+ */
+export function eventsBySymbol(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const past = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
+
+  const rows = q.all(
+    "SELECT * FROM stock_event WHERE user_id=? AND ex_date >= ? ORDER BY ex_date",
+    userId, past
+  );
+
+  const map = {};
+  for (const r of rows) {
+    const days = Math.round((new Date(r.ex_date) - new Date(today)) / 86400000);
+    const item = {
+      id: r.id, loai: r.loai, ex_date: r.ex_date, record_date: r.record_date,
+      pay_date: r.pay_date, gia_tri: r.gia_tri, ty_le: r.ty_le, ghi_chu: r.ghi_chu,
+      con_ngay: days, da_qua: days < 0,
+      // Tiền chưa về nếu đã qua ngày chốt nhưng chưa tới ngày thanh toán.
+      cho_tien: days < 0 && r.pay_date ? r.pay_date > today : false,
+    };
+    (map[r.symbol] = map[r.symbol] || []).push(item);
+  }
+  return map;
+}

@@ -13,7 +13,7 @@ import { importLedger, reconcile, positions as stockPositions, state as stockSta
          cashFlow, checkAgainstBroker, applyReconcile, markReconciled, reconcileHistory, lastReconcile,
          periodReport, bySymbolReport, getAlerts, setAlert, checkAlerts,
          parseBatch, commitBatch, marginInterest, holdingDays,
-         investSettings, saveInvestSettings, tcbsToBatch } from "./stock.js";
+         investSettings, saveInvestSettings, tcbsToBatch, eventsBySymbol } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -554,6 +554,25 @@ route("GET", "/api/portfolio", async (ctx) => {
     } catch (e) {
       priceError = e.message;
     }
+  }
+
+  // Gắn sự kiện quyền vào thẳng từng mã: lịch cổ tức chỉ hữu ích khi nó nằm
+  // ngay cạnh mã đang giữ, chứ không phải nằm trong một màn hình riêng phải mở ra.
+  const evs = eventsBySymbol(ctx.userId);
+  if (snap && Array.isArray(snap.positions)) {
+    snap.positions = snap.positions.map((p) => {
+      const list = evs[p.symbol] || [];
+      const sapToi = list.filter((e) => !e.da_qua);
+      const choTien = list.filter((e) => e.cho_tien);
+      const next = sapToi[0] || choTien[0] || null;
+      return {
+        ...p,
+        su_kien: list,
+        su_kien_gan_nhat: next,
+        // Ước tiền cổ tức theo số cổ đang giữ, chỉ khi biết số tiền mỗi cổ.
+        uoc_co_tuc: next && next.gia_tri ? next.gia_tri * p.qty : null,
+      };
+    });
   }
 
   return {

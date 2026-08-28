@@ -2440,7 +2440,10 @@ function Invest({
       color: cssVar("--amber"),
       marginTop: 5
     }
-  }, "tỷ trọng trên 40%, danh mục đang tập trung vào mã này")))), hist && hist.realized && hist.realized.length > 0 && React.createElement("section", {
+  }, "tỷ trọng trên 40%, danh mục đang tập trung vào mã này"), p.su_kien_gan_nhat && React.createElement(EventLine, {
+    ev: p.su_kien_gan_nhat,
+    qty: p.qty
+  })))), hist && hist.realized && hist.realized.length > 0 && React.createElement("section", {
     style: {
       marginTop: 28
     }
@@ -3906,7 +3909,7 @@ function InvestAnalysis({
       fontSize: 12,
       color: cssVar("--muted")
     }
-  }, "%/năm"), React.createElement(Button, {
+  }, "%/năm ước chừng"), React.createElement(Button, {
     kind: "outline",
     onClick: saveRate,
     disabled: saving,
@@ -3922,7 +3925,7 @@ function InvestAnalysis({
       marginTop: 0,
       marginBottom: 24
     }
-  }, "Đây là số ", React.createElement("b", null, "ước tính"), ", không phải số công ty chứng khoán thu. Lãi suất thay đổi theo gói, lại còn phí ứng trước tiền bán và các khoản khác không nằm trong sổ. Số thật chỉ có khi đối chiếu — con số này để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không."), React.createElement("div", {
+  }, "Con số ", React.createElement("b", null, "ước chừng"), ", không phải số công ty chứng khoán thu. Lãi suất thay đổi liên tục theo gói và theo thời điểm, lại còn phí ứng trước tiền bán không nằm trong sổ — nên đừng mất công tìm cho ra con số chính xác, để mức áng chừng là đủ. Số thật lấy được khi đối chiếu; cái này chỉ để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không."), React.createElement("div", {
     className: "num label"
   }, "Thời gian nắm giữ"), React.createElement("div", {
     style: {
@@ -4288,6 +4291,46 @@ function StockEvents({
       width: "100%"
     }
   }, "Lưu sự kiện")))));
+}
+function EventLine({
+  ev,
+  qty
+}) {
+  const TEN = {
+    co_tuc_tien: "cổ tức tiền",
+    co_tuc_cp: "cổ tức cổ phiếu",
+    phat_hanh_them: "phát hành thêm",
+    dhcd: "đại hội cổ đông",
+    khac: "sự kiện"
+  };
+  let mau = "--muted";
+  let dau = "";
+  if (ev.cho_tien) {
+    mau = "--blue";
+    dau = "đã qua ngày chốt, chờ nhận";
+  } else if (ev.con_ngay === 0) {
+    mau = "--amber";
+    dau = "hôm nay là ngày không hưởng quyền";
+  } else if (ev.con_ngay > 0 && ev.con_ngay <= 5) {
+    mau = "--amber";
+    dau = `còn ${ev.con_ngay} ngày`;
+  } else if (ev.con_ngay > 0) {
+    dau = `còn ${ev.con_ngay} ngày`;
+  } else {
+    dau = "đã qua";
+  }
+  const tien = ev.gia_tri ? ev.gia_tri * qty : null;
+  return React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      marginTop: 6,
+      paddingTop: 6,
+      borderTop: `1px solid ${cssVar("--line")}`,
+      color: cssVar(mau),
+      lineHeight: 1.7
+    }
+  }, TEN[ev.loai] || "sự kiện", ev.gia_tri ? ` ${nf.format(ev.gia_tri)}đ/cp` : "", ev.ty_le ? ` · tỷ lệ ${ev.ty_le}` : "", " · không hưởng quyền ", ev.ex_date, dau ? ` · ${dau}` : "", tien && React.createElement(React.Fragment, null, React.createElement("br", null), "ước nhận ", money(tien), " cho ", nf.format(qty), " cp", ev.pay_date ? ` · thanh toán ${ev.pay_date}` : ""));
 }
 function Reports({
   month,

@@ -537,16 +537,17 @@ function InvestAnalysis({ onClose, flash }) {
             <div className="between" style={{ marginTop: 12, gap: 8 }}>
               <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
                 style={{ flex: 1 }} placeholder="14.6" />
-              <span style={{ fontSize: 12, color: cssVar("--muted") }}>%/năm</span>
+              <span style={{ fontSize: 12, color: cssVar("--muted") }}>%/năm ước chừng</span>
               <Button kind="outline" onClick={saveRate} disabled={saving}
                 style={{ padding: "6px 12px", fontSize: 12 }}>Lưu</Button>
             </div>
           </div>
         )}
         <p style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.7, marginTop: 0, marginBottom: 24 }}>
-          Đây là số <b>ước tính</b>, không phải số công ty chứng khoán thu. Lãi suất thay đổi theo gói,
-          lại còn phí ứng trước tiền bán và các khoản khác không nằm trong sổ. Số thật chỉ có khi
-          đối chiếu — con số này để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không.
+          Con số <b>ước chừng</b>, không phải số công ty chứng khoán thu. Lãi suất thay đổi liên tục
+          theo gói và theo thời điểm, lại còn phí ứng trước tiền bán không nằm trong sổ — nên đừng
+          mất công tìm cho ra con số chính xác, để mức áng chừng là đủ. Số thật lấy được khi đối
+          chiếu; cái này chỉ để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không.
         </p>
 
         <div className="num label">Thời gian nắm giữ</div>
@@ -745,5 +746,44 @@ function StockEvents({ onClose, flash }) {
         )}
       </div>
     </Sheet>
+  );
+}
+
+/**
+ * Một dòng sự kiện quyền hiện ngay dưới mã trong danh mục.
+ *
+ * Ưu tiên nói điều người giữ cổ phiếu thực sự cần biết theo từng giai đoạn:
+ * còn mấy ngày nữa tới ngày mất quyền, hay đã qua ngày chốt mà tiền chưa về.
+ */
+function EventLine({ ev, qty }) {
+  const TEN = {
+    co_tuc_tien: "cổ tức tiền",
+    co_tuc_cp: "cổ tức cổ phiếu",
+    phat_hanh_them: "phát hành thêm",
+    dhcd: "đại hội cổ đông",
+    khac: "sự kiện",
+  };
+
+  let mau = "--muted";
+  let dau = "";
+  if (ev.cho_tien) { mau = "--blue"; dau = "đã qua ngày chốt, chờ nhận"; }
+  else if (ev.con_ngay === 0) { mau = "--amber"; dau = "hôm nay là ngày không hưởng quyền"; }
+  else if (ev.con_ngay > 0 && ev.con_ngay <= 5) { mau = "--amber"; dau = `còn ${ev.con_ngay} ngày`; }
+  else if (ev.con_ngay > 0) { dau = `còn ${ev.con_ngay} ngày`; }
+  else { dau = "đã qua"; }
+
+  const tien = ev.gia_tri ? ev.gia_tri * qty : null;
+
+  return (
+    <div className="num" style={{ fontSize: 11, marginTop: 6, paddingTop: 6,
+      borderTop: `1px solid ${cssVar("--line")}`, color: cssVar(mau), lineHeight: 1.7 }}>
+      {TEN[ev.loai] || "sự kiện"}
+      {ev.gia_tri ? ` ${nf.format(ev.gia_tri)}đ/cp` : ""}
+      {ev.ty_le ? ` · tỷ lệ ${ev.ty_le}` : ""}
+      {" · không hưởng quyền "}{ev.ex_date}
+      {dau ? ` · ${dau}` : ""}
+      {tien && <><br />ước nhận {money(tien)} cho {nf.format(qty)} cp
+        {ev.pay_date ? ` · thanh toán ${ev.pay_date}` : ""}</>}
+    </div>
   );
 }

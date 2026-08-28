@@ -230,6 +230,8 @@ function Invest({ flash }) {
                 tỷ trọng trên 40%, danh mục đang tập trung vào mã này
               </div>
             )}
+
+            {p.su_kien_gan_nhat && <EventLine ev={p.su_kien_gan_nhat} qty={p.qty} />}
           </div>
         ))}
       </div>
