@@ -694,6 +694,35 @@ export function checkAlerts(userId, prices = {}) {
  *
  * Trả về danh sách đã phân tích kèm lỗi từng dòng để xem trước. KHÔNG ghi gì.
  */
+/** Dòng này trông có phải tin nhắn khớp lệnh của công ty chứng khoán không. */
+function looksLikeTcbs(line) {
+  return /\bTK\s*\d/i.test(line)
+      || /Đã\s+khớp|da\s+khop/i.test(line)
+      || /Đặt\s+(mua|bán)|dat\s+(mua|ban)/i.test(line);
+}
+
+/**
+ * Ghép lại những dòng bị ngắt giữa chừng.
+ *
+ * Tin nhắn dài dán từ điện thoại hay bị xuống dòng ngay giữa câu. Một dòng bắt
+ * đầu bằng ngày là mở đầu tin mới; dòng không bắt đầu bằng ngày mà lại nằm sau
+ * một tin TCBS thì gần như chắc chắn là phần đuôi bị ngắt của tin đó.
+ */
+function joinWrapped(text) {
+  const raw = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  const out = [];
+  for (const line of raw) {
+    const batDauTin = /^\d{1,2}[/-]\d{1,2}[/-]\d{4}/.test(line);
+    const truoc = out[out.length - 1];
+    if (!batDauTin && truoc && looksLikeTcbs(truoc) && !/Đã\s+khớp|da\s+khop/i.test(truoc)) {
+      out[out.length - 1] = truoc + " " + line;
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
 export function parseBatch(userId, text) {
   const VERBS = {
     MUA: "BUY", BUY: "BUY", B: "BUY",
@@ -725,8 +754,20 @@ export function parseBatch(userId, text) {
     return isDate(d) ? d : null;
   };
 
-  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  const lines = joinWrapped(String(text || ""));
+
   const rows = lines.map((line, i) => {
+    // Nhận luôn tin nhắn TCBS dán thẳng vào đây.
+    //
+    // Trước đây tin nhắn phải dán vào một ô riêng, còn ô này chỉ nhận cú pháp
+    // lệnh. Không ai nhớ được ô nào dùng cho gì, và ô lớn nhất thì đương nhiên
+    // là chỗ người ta dán vào. Thà để một ô nhận cả hai.
+    if (looksLikeTcbs(line)) {
+      const r = parseTcbsMessages(line)[0];
+      if (r && r.tx) return { dong: i + 1, raw: line, tx: r.tx, ghi_chu: r.ghi_chu, tu_tcbs: true };
+      return { dong: i + 1, raw: line, loi: (r && r.loi) || "Không đọc được tin nhắn TCBS", tu_tcbs: true };
+    }
+
     const p = line.split(/\s+/);
     const verb = (p[0] || "").toUpperCase().replace(/[^A-Z]/g, "");
     const type = VERBS[verb];

@@ -3316,28 +3316,6 @@ function BatchEntry({
       onClose();
     }).catch(e => setErr(e.message)).finally(() => setBusy(false));
   };
-  const [tcbs, setTcbs] = useState("");
-  const [showTcbs, setShowTcbs] = useState(false);
-  const doTcbs = () => {
-    setBusy(true);
-    setErr("");
-    api("/stock/tcbs/parse", {
-      method: "POST",
-      body: {
-        text: tcbs
-      }
-    }).then(d => {
-      if (!d.doc_duoc) {
-        setErr("Không đọc được dòng nào từ tin nhắn");
-        return;
-      }
-      setText(t => (t.trim() ? t.trim() + "\n" : "") + d.text);
-      setPrev(null);
-      setShowTcbs(false);
-      const luuY = d.rows.filter(r => r.ghi_chu);
-      flash(`Đọc được ${d.doc_duoc} lệnh` + (d.trung_lap ? `, bỏ ${d.trung_lap} dòng trùng` : "") + (d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : "") + (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
-    }).catch(e => setErr(e.message)).finally(() => setBusy(false));
-  };
   const ready = prev && prev.loi === 0 && !prev.loi_tong_the && prev.hop_le > 0;
   return React.createElement(Sheet, {
     title: "Nhập nhiều giao dịch",
@@ -3355,7 +3333,29 @@ function BatchEntry({
     }
   }, React.createElement("div", {
     className: "num label"
-  }, "Mỗi dòng một lệnh"), React.createElement("pre", {
+  }, "Dán tin nhắn TCBS, hoặc gõ lệnh — mỗi dòng một giao dịch"), React.createElement("pre", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      lineHeight: 1.7,
+      margin: "8px 0 0",
+      color: cssVar("--muted"),
+      whiteSpace: "pre-wrap"
+    }
+  }, `13/08/2026 - TK 105C110678 - Tiểu khoản Ký quỹ:
+Đặt mua 5,000 HCM giá 25,950. Đã khớp 5,000 giá 25,950`), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      margin: "10px 0",
+      lineHeight: 1.6
+    }
+  }, "Tin nhắn chỉ lấy phần ", React.createElement("b", null, "đã khớp"), ", bỏ qua lệnh chờ và lệnh hủy. Số tài khoản không được lưu lại. Dán nhiều tin cùng lúc cũng được."), React.createElement("div", {
+    className: "num label",
+    style: {
+      marginTop: 12
+    }
+  }, "Hoặc gõ tay"), React.createElement("pre", {
     className: "num",
     style: {
       fontSize: 12,
@@ -3377,53 +3377,7 @@ THUONG CTS 500 20/08`), React.createElement("div", {
       marginTop: 10,
       lineHeight: 1.6
     }
-  }, "Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.")), React.createElement(Button, {
-    kind: "outline",
-    onClick: () => setShowTcbs(!showTcbs),
-    style: {
-      width: "100%",
-      marginBottom: 12,
-      fontSize: 12,
-      padding: "8px"
-    }
-  }, showTcbs ? "Ẩn ô tin nhắn TCBS" : "Dán tin nhắn từ TCBS"), showTcbs && React.createElement("div", {
-    style: {
-      marginBottom: 14
-    }
-  }, React.createElement("textarea", {
-    rows: 4,
-    value: tcbs,
-    placeholder: "Dán nguyên tin nhắn khớp lệnh từ TCBS…",
-    onChange: e => setTcbs(e.target.value),
-    style: {
-      width: "100%",
-      fontSize: 12,
-      lineHeight: 1.6
-    }
-  }), React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: cssVar("--muted"),
-      lineHeight: 1.6,
-      margin: "8px 0"
-    }
-  }, "Chỉ lấy phần ", React.createElement("b", null, "đã khớp"), ", bỏ qua lệnh chờ và lệnh hủy. Số tài khoản trong tin nhắn không được lưu lại. Đọc xong vẫn xem trước rồi mới ghi."), React.createElement(Button, {
-    kind: "outline",
-    onClick: doTcbs,
-    disabled: busy || !tcbs.trim(),
-    style: {
-      width: "100%",
-      fontSize: 12,
-      padding: "8px"
-    }
-  }, "Đọc tin nhắn"), React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: cssVar("--muted"),
-      lineHeight: 1.6,
-      marginTop: 8
-    }
-  }, "Dòng nào giống hệt dòng trước về ngày, mã, số lượng và giá thì bị bỏ — dán lặp cùng một tin là chuyện thường. Nếu đúng là hai lệnh riêng thì thêm tay dòng thứ hai.")), React.createElement("textarea", {
+  }, "Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.")), React.createElement("textarea", {
     rows: 8,
     value: text,
     placeholder: "Dán hoặc gõ các lệnh vào đây…",
@@ -3475,7 +3429,15 @@ THUONG CTS 500 20/08`), React.createElement("div", {
     style: {
       color: cssVar("--muted")
     }
-  }, r.dong, "."), " ", r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`, r.canh_bao && React.createElement("span", {
+  }, r.dong, "."), " ", r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`, r.tu_tcbs && !r.loi && React.createElement("span", {
+    style: {
+      color: cssVar("--muted")
+    }
+  }, "  · từ tin nhắn"), r.ghi_chu && React.createElement("span", {
+    style: {
+      color: cssVar("--amber")
+    }
+  }, "  " + r.ghi_chu), r.canh_bao && React.createElement("span", {
     style: {
       color: cssVar("--amber")
     }

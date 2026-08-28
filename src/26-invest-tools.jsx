@@ -188,34 +188,23 @@ function BatchEntry({ onClose, onSaved, flash }) {
       .catch((e) => setErr(e.message)).finally(() => setBusy(false));
   };
 
-  const [tcbs, setTcbs] = useState("");
-  const [showTcbs, setShowTcbs] = useState(false);
-
-  // Doc tin nhan TCBS roi doi sang dinh dang lenh, KHONG ghi thang.
-  // Nguoi dung van xem truoc tung dong nhu moi lo khac.
-  const doTcbs = () => {
-    setBusy(true); setErr("");
-    api("/stock/tcbs/parse", { method: "POST", body: { text: tcbs } })
-      .then((d) => {
-        if (!d.doc_duoc) { setErr("Không đọc được dòng nào từ tin nhắn"); return; }
-        setText((t) => (t.trim() ? t.trim() + "\n" : "") + d.text);
-        setPrev(null); setShowTcbs(false);
-        const luuY = d.rows.filter((r) => r.ghi_chu);
-        flash(`Đọc được ${d.doc_duoc} lệnh` +
-              (d.trung_lap ? `, bỏ ${d.trung_lap} dòng trùng` : "") +
-              (d.bo_qua ? `, bỏ qua ${d.bo_qua} dòng` : "") +
-              (luuY.length ? ` — có ${luuY.length} lệnh khớp một phần` : ""));
-      })
-      .catch((e) => setErr(e.message)).finally(() => setBusy(false));
-  };
-
   const ready = prev && prev.loi === 0 && !prev.loi_tong_the && prev.hop_le > 0;
 
   return (
     <Sheet title="Nhập nhiều giao dịch" onClose={onClose}>
       <div className="pad" style={{ paddingTop: 18 }}>
         <div className="box" style={{ padding: 12, marginBottom: 14 }}>
-          <div className="num label">Mỗi dòng một lệnh</div>
+          <div className="num label">Dán tin nhắn TCBS, hoặc gõ lệnh — mỗi dòng một giao dịch</div>
+          <pre className="num" style={{ fontSize: 12, lineHeight: 1.7, margin: "8px 0 0",
+            color: cssVar("--muted"), whiteSpace: "pre-wrap" }}>
+{`13/08/2026 - TK 105C110678 - Tiểu khoản Ký quỹ:
+Đặt mua 5,000 HCM giá 25,950. Đã khớp 5,000 giá 25,950`}
+          </pre>
+          <div style={{ fontSize: 11, color: cssVar("--muted"), margin: "10px 0", lineHeight: 1.6 }}>
+            Tin nhắn chỉ lấy phần <b>đã khớp</b>, bỏ qua lệnh chờ và lệnh hủy. Số tài khoản
+            không được lưu lại. Dán nhiều tin cùng lúc cũng được.
+          </div>
+          <div className="num label" style={{ marginTop: 12 }}>Hoặc gõ tay</div>
           <pre className="num" style={{ fontSize: 12, lineHeight: 1.8, margin: "8px 0 0",
             color: cssVar("--muted"), whiteSpace: "pre-wrap" }}>
 {`MUA HCM 5000 25900 13/08
@@ -230,29 +219,6 @@ THUONG CTS 500 20/08`}
             Giá nhập theo đồng. Bỏ trống ngày thì lấy hôm nay. Dòng bắt đầu bằng # được bỏ qua.
           </div>
         </div>
-
-        <Button kind="outline" onClick={() => setShowTcbs(!showTcbs)}
-          style={{ width: "100%", marginBottom: 12, fontSize: 12, padding: "8px" }}>
-          {showTcbs ? "Ẩn ô tin nhắn TCBS" : "Dán tin nhắn từ TCBS"}
-        </Button>
-
-        {showTcbs && (
-          <div style={{ marginBottom: 14 }}>
-            <textarea rows={4} value={tcbs} placeholder="Dán nguyên tin nhắn khớp lệnh từ TCBS…"
-              onChange={(e) => setTcbs(e.target.value)}
-              style={{ width: "100%", fontSize: 12, lineHeight: 1.6 }} />
-            <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6, margin: "8px 0" }}>
-              Chỉ lấy phần <b>đã khớp</b>, bỏ qua lệnh chờ và lệnh hủy. Số tài khoản trong tin nhắn
-              không được lưu lại. Đọc xong vẫn xem trước rồi mới ghi.
-            </div>
-            <Button kind="outline" onClick={doTcbs} disabled={busy || !tcbs.trim()}
-              style={{ width: "100%", fontSize: 12, padding: "8px" }}>Đọc tin nhắn</Button>
-            <div style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.6, marginTop: 8 }}>
-              Dòng nào giống hệt dòng trước về ngày, mã, số lượng và giá thì bị bỏ — dán lặp
-              cùng một tin là chuyện thường. Nếu đúng là hai lệnh riêng thì thêm tay dòng thứ hai.
-            </div>
-          </div>
-        )}
 
         <textarea rows={8} value={text} placeholder="Dán hoặc gõ các lệnh vào đây…"
           onChange={(e) => { setText(e.target.value); setPrev(null); }}
@@ -272,6 +238,8 @@ THUONG CTS 500 20/08`}
                 color: r.loi ? cssVar("--red") : cssVar("--ink") }}>
                 <span style={{ color: cssVar("--muted") }}>{r.dong}.</span>{" "}
                 {r.loi ? `${r.raw} — ${r.loi}` : `${r.tx.type} ${r.tx.symbol || ""} ${r.tx.qty || ""} ${r.tx.priceVND || r.tx.cash || ""} ${r.tx.date}`}
+                {r.tu_tcbs && !r.loi && <span style={{ color: cssVar("--muted") }}>{"  · từ tin nhắn"}</span>}
+                {r.ghi_chu && <span style={{ color: cssVar("--amber") }}>{"  " + r.ghi_chu}</span>}
                 {r.canh_bao && <span style={{ color: cssVar("--amber") }}>{"  ⚠ " + r.canh_bao}</span>}
               </div>
             ))}
