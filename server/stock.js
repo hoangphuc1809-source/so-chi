@@ -1,6 +1,25 @@
 import { q, db, uid, now } from "./db.js";
 import { rebuild, settleDate, daysBetween } from "./ledger.js";
 
+/**
+ * Biểu phí của tài khoản này.
+ *
+ * Phí mua nằm trong giá vốn, nên đổi số ở đây là đổi giá vốn của TOÀN BỘ lệnh
+ * mua đã ghi, kể cả lệnh từ nhiều tháng trước. Đó là hành vi đúng — sổ luôn
+ * tính lại từ đầu nên không có chuyện hai lệnh cùng loại lại chịu hai mức phí
+ * khác nhau — nhưng phải biết trước khi sửa.
+ *
+ * Mặc định để 0 đúng như bản gốc port từ portfolio-bot, để sổ của người chưa
+ * cấu hình gì không tự nhiên đổi số.
+ */
+export function getFees(userId) {
+  return {
+    buyPct: getSetting(userId, "fee_buy_pct", 0),
+    sellPct: getSetting(userId, "fee_sell_pct", 0),
+    taxPct: getSetting(userId, "fee_tax_pct", 0.1),
+  };
+}
+
 /** Lấy đúng mảng giao dịch (chưa hủy) để đưa vào rebuild — nguyên văn object gốc. */
 export function loadTxs(userId) {
   return q
@@ -15,7 +34,7 @@ export function loadVoided(userId) {
 }
 
 export function state(userId) {
-  return rebuild(loadTxs(userId));
+  return rebuild(loadTxs(userId), getFees(userId));
 }
 
 function insertTx(userId, tx, voided = false, voidedAt = null, reason = null) {
@@ -227,7 +246,7 @@ export function appendTx(userId, input) {
   const full = { id: `tx${String(seq).padStart(4, "0")}`, seq, ...tx };
 
   // Dung thu truoc khi ghi that.
-  const trial = rebuild([...loadTxs(userId), full]);
+  const trial = rebuild([...loadTxs(userId), full], getFees(userId));
   if (trial.error) throw new Error(trial.error);
 
   insertTx(userId, full);
@@ -749,7 +768,7 @@ export function parseBatch(userId, text) {
     const trial = rebuild([
       ...loadTxs(userId),
       ...good.map((r) => ({ id: `tmp${seq}`, seq: seq++, ...r.tx })),
-    ]);
+    ], getFees(userId));
     trialError = trial.error || null;
   }
 
@@ -834,6 +853,7 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
   }
 
   const daily = rate / 100 / 365;
+  const fees = getFees(userId);
   const sorted = [...txs].sort((a, b) => (a.date === b.date ? a.seq - b.seq : a.date < b.date ? -1 : 1));
 
   let total = 0, borrowDays = 0, peak = 0, peakDate = null;
@@ -845,7 +865,7 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
     const day = cursor.toISOString().slice(0, 10);
     // Dựng lại sổ tính đến hết ngày này. Chậm hơn cách cộng dồn nhưng dùng
     // đúng một engine với mọi con số khác — không sợ hai chỗ tính lệch nhau.
-    const st = rebuild(sorted.filter((t) => t.date <= day));
+    const st = rebuild(sorted.filter((t) => t.date <= day), fees);
     const debt = st.cash < 0 ? -st.cash : 0;
     if (debt > 0) {
       const i = debt * daily;
@@ -916,21 +936,74 @@ function getSetting(userId, key, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const SETTING_SPEC = {
+  margin_rate_year: { max: 100, ten: "Lãi suất margin" },
+  fee_buy_pct: { max: 5, ten: "Phí mua" },
+  fee_sell_pct: { max: 5, ten: "Phí bán" },
+  fee_tax_pct: { max: 5, ten: "Thuế bán" },
+};
+
 export function investSettings(userId) {
-  return { margin_rate_year: getSetting(userId, "margin_rate_year", 14.6) };
+  const f = getFees(userId);
+  return {
+    margin_rate_year: getSetting(userId, "margin_rate_year", 14.6),
+    fee_buy_pct: f.buyPct,
+    fee_sell_pct: f.sellPct,
+    fee_tax_pct: f.taxPct,
+  };
 }
 
 export function saveInvestSettings(userId, input) {
-  if (input.margin_rate_year !== undefined) {
-    const v = Number(input.margin_rate_year);
-    if (!Number.isFinite(v) || v < 0 || v > 100) throw new Error("Lãi suất phải trong khoảng 0 đến 100");
+  for (const [key, spec] of Object.entries(SETTING_SPEC)) {
+    if (input[key] === undefined) continue;
+    const v = Number(input[key]);
+    if (!Number.isFinite(v) || v < 0 || v > spec.max) {
+      throw new Error(`${spec.ten} phải trong khoảng 0 đến ${spec.max}`);
+    }
     q.run(
       `INSERT INTO stock_setting (user_id,key,value,updated_at) VALUES (?,?,?,?)
        ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
-      userId, "margin_rate_year", String(v), Date.now()
+      userId, key, String(v), Date.now()
     );
   }
   return investSettings(userId);
+}
+
+/**
+ * Xem trước ảnh hưởng của việc đổi biểu phí, trước khi lưu.
+ *
+ * Đổi phí là đổi giá vốn của mọi lệnh mua đã ghi. Người dùng cần thấy con số
+ * mới trông thế nào rồi mới quyết định, chứ không phải lưu xong mới phát hiện
+ * cả danh mục nhảy số.
+ */
+export function previewFees(userId, input) {
+  const txs = loadTxs(userId);
+  const cu = rebuild(txs, getFees(userId));
+  const moi = rebuild(txs, {
+    buyPct: Number(input.fee_buy_pct) || 0,
+    sellPct: Number(input.fee_sell_pct) || 0,
+    taxPct: Number(input.fee_tax_pct) || 0,
+  });
+  if (cu.error || moi.error) return { error: cu.error || moi.error };
+
+  const rows = Object.keys({ ...cu.positions, ...moi.positions }).map((sym) => {
+    const a = cu.positions[sym], b = moi.positions[sym];
+    return {
+      symbol: sym,
+      qty: (b || a).qty,
+      von_cu: a ? Math.round(a.avgCostVND) : null,
+      von_moi: b ? Math.round(b.avgCostVND) : null,
+      tong_cu: a ? a.costTotal : null,
+      tong_moi: b ? b.costTotal : null,
+    };
+  });
+
+  return {
+    ok: true, rows,
+    tien_mat_cu: cu.cash,
+    tien_mat_moi: moi.cash,
+    lech_tien_mat: moi.cash - cu.cash,
+  };
 }
 
 /* ==================== Đọc tin nhắn TCBS ==================== */

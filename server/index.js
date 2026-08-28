@@ -13,7 +13,8 @@ import { importLedger, reconcile, positions as stockPositions, state as stockSta
          cashFlow, checkAgainstBroker, applyReconcile, markReconciled, reconcileHistory, lastReconcile,
          periodReport, bySymbolReport, getAlerts, setAlert, checkAlerts,
          parseBatch, commitBatch, marginInterest, holdingDays,
-         investSettings, saveInvestSettings, tcbsToBatch, eventsBySymbol } from "./stock.js";
+         investSettings, saveInvestSettings, tcbsToBatch, eventsBySymbol,
+         getFees, previewFees } from "./stock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -643,6 +644,9 @@ route("GET", "/api/stock/export", (ctx) => {
   return {
     transactions: loadTxs(userId),
     voided: loadVoided(userId),
+    // Bot dung engine FIFO rieng cua no. Khong gui kem bieu phi thi phi mua
+    // khong vao gia von ben do, va /dm se ra gia von khac han app.
+    fees: getFees(userId),
     served_at: new Date().toISOString(),
   };
 }, { auth: false });
@@ -660,6 +664,7 @@ route("GET", "/api/stock/holding", (ctx) => holdingDays(ctx.userId));
 
 route("GET", "/api/stock/settings", (ctx) => investSettings(ctx.userId));
 route("POST", "/api/stock/settings", (ctx) => saveInvestSettings(ctx.userId, ctx.body));
+route("POST", "/api/stock/settings/preview", (ctx) => previewFees(ctx.userId, ctx.body));
 
 /* ---------- Đọc tin nhắn TCBS ---------- */
 

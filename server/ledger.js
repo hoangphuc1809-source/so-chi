@@ -4,6 +4,11 @@
  * KHÔNG sửa logic ở đây. Đây là bản đã chạy thật với sổ tiền của người dùng và
  * đã qua 11 nhóm kiểm tra. Chỉ đổi CommonJS sang ESM và tách FEES ra config.
  * Mọi thay đổi logic phải kèm test đối chiếu lại với bản gốc.
+ *
+ * Thay đổi duy nhất ngoài việc chuyển module: rebuild() nhận thêm tham số phí
+ * tùy chọn. Không truyền thì dùng đúng FEES mặc định như trước, nên mọi lời gọi
+ * cũ cho kết quả y hệt. Cần tham số này vì biểu phí là của từng tài khoản chứ
+ * không phải hằng số toàn hệ thống, mà phí mua thì nằm trong giá vốn.
  */
 
 export const FEES = {
@@ -16,7 +21,8 @@ export const FEES = {
  * Tinh lai toan bo trang thai tu so giao dich (append-only).
  * Khong luu state -> khong bao gio lech.
  */
-function rebuild(txs) {
+function rebuild(txs, fees) {
+  const F = fees ? { ...FEES, ...fees } : FEES;
   const sorted = [...txs].sort((a, b) =>
     a.date === b.date ? a.seq - b.seq : (a.date < b.date ? -1 : 1)
   );
@@ -42,7 +48,7 @@ function rebuild(txs) {
 
       case "BUY": {
         const gross = tx.priceVND * tx.qty;
-        const fee = Math.round(gross * FEES.buyPct / 100);
+        const fee = Math.round(gross * F.buyPct / 100);
         if (affectsCash(tx)) cash -= gross + fee;
         (lots[tx.symbol] = lots[tx.symbol] || []).push({
           txId: tx.id,
@@ -61,8 +67,8 @@ function rebuild(txs) {
           break;
         }
         const gross = tx.priceVND * tx.qty;
-        const fee = Math.round(gross * FEES.sellPct / 100);
-        const tax = Math.round(gross * FEES.taxPct / 100);
+        const fee = Math.round(gross * F.sellPct / 100);
+        const tax = Math.round(gross * F.taxPct / 100);
         const proceedsNet = gross - fee - tax;
         if (affectsCash(tx)) cash += proceedsNet;
 

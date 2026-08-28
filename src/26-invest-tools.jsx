@@ -490,11 +490,18 @@ function InvestAnalysis({ onClose, flash }) {
   const [unusual, setUnusual] = useState(null);
   const [rate, setRate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [fees, setFees] = useState(null);
+  const [feePrev, setFeePrev] = useState(null);
+  const [feeErr, setFeeErr] = useState("");
 
   const load = useCallback(() => {
     api("/stock/holding").then(setHold).catch(() => {});
     api("/stock/margin-interest").then((d) => { setMi(d); setRate(String(d.lai_suat_nam)); }).catch(() => {});
     api("/stock/unusual").then(setUnusual).catch((e) => setUnusual({ ok: false, error: e.message }));
+    api("/stock/settings").then((d) => setFees({
+      fee_buy_pct: String(d.fee_buy_pct), fee_sell_pct: String(d.fee_sell_pct),
+      fee_tax_pct: String(d.fee_tax_pct),
+    })).catch(() => {});
   }, []);
   useEffect(load, [load]);
 
@@ -548,6 +555,73 @@ function InvestAnalysis({ onClose, flash }) {
           theo gói và theo thời điểm, lại còn phí ứng trước tiền bán không nằm trong sổ — nên đừng
           mất công tìm cho ra con số chính xác, để mức áng chừng là đủ. Số thật lấy được khi đối
           chiếu; cái này chỉ để biết trước khoảng bao nhiêu và để thấy số đối chiếu có hợp lý không.
+        </p>
+
+        <div className="num label">Biểu phí</div>
+        {fees && (
+          <div className="box" style={{ padding: 14, marginTop: 8, marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              {[["fee_buy_pct", "Mua"], ["fee_sell_pct", "Bán"], ["fee_tax_pct", "Thuế bán"]].map(([k, ten]) => (
+                <div key={k} style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: cssVar("--muted"), marginBottom: 4 }}>{ten} %</div>
+                  <input inputMode="decimal" value={fees[k]} style={{ width: "100%" }}
+                    onChange={(e) => { setFees({ ...fees, [k]: e.target.value }); setFeePrev(null); }} />
+                </div>
+              ))}
+            </div>
+
+            {feePrev && feePrev.rows && (
+              <div style={{ marginTop: 4, paddingTop: 10, borderTop: `1px solid ${cssVar("--line")}` }}>
+                <div style={{ fontSize: 11, color: cssVar("--muted"), marginBottom: 6 }}>
+                  Giá vốn sẽ đổi thành
+                </div>
+                {feePrev.rows.map((r) => (
+                  <div key={r.symbol} className="num between" style={{ fontSize: 12, marginBottom: 4 }}>
+                    <span>{r.symbol}</span>
+                    <span>
+                      <span style={{ color: cssVar("--muted") }}>{nf.format(r.von_cu)}</span>
+                      {" → "}
+                      <b>{nf.format(r.von_moi)}</b>
+                    </span>
+                  </div>
+                ))}
+                {feePrev.lech_tien_mat !== 0 && (
+                  <div className="num" style={{ fontSize: 11, color: cssVar("--amber"), marginTop: 6 }}>
+                    tiền mặt đổi {feePrev.lech_tien_mat > 0 ? "+" : ""}{money(feePrev.lech_tien_mat)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {feeErr && <div style={{ color: cssVar("--red"), fontSize: 12, marginTop: 8 }}>{feeErr}</div>}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <Button kind="outline" style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
+                onClick={() => {
+                  setFeeErr("");
+                  api("/stock/settings/preview", { method: "POST", body: {
+                    fee_buy_pct: Number(fees.fee_buy_pct), fee_sell_pct: Number(fees.fee_sell_pct),
+                    fee_tax_pct: Number(fees.fee_tax_pct),
+                  } }).then(setFeePrev).catch((e) => setFeeErr(e.message));
+                }}>Xem trước</Button>
+              {feePrev && (
+                <Button style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => {
+                    api("/stock/settings", { method: "POST", body: {
+                      fee_buy_pct: Number(fees.fee_buy_pct), fee_sell_pct: Number(fees.fee_sell_pct),
+                      fee_tax_pct: Number(fees.fee_tax_pct),
+                    } }).then(() => { flash("Đã lưu biểu phí"); setFeePrev(null); load(); })
+                      .catch((e) => setFeeErr(e.message));
+                  }}>Lưu biểu phí</Button>
+              )}
+            </div>
+          </div>
+        )}
+        <p style={{ fontSize: 11, color: cssVar("--muted"), lineHeight: 1.7, marginTop: 0, marginBottom: 24 }}>
+          Phí mua nằm trong giá vốn, nên đổi số ở đây là đổi giá vốn của <b>mọi lệnh mua đã ghi</b>,
+          kể cả lệnh từ nhiều tháng trước. Đó là đúng — sổ luôn tính lại từ đầu nên không có chuyện
+          hai lệnh cùng loại chịu hai mức phí khác nhau — nhưng nên bấm Xem trước để thấy con số mới
+          rồi hãy lưu.
         </p>
 
         <div className="num label">Thời gian nắm giữ</div>
