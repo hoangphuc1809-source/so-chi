@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { q, uid, now, seedCategories } from "./db.js";
-import { createUser, login, verifyToken, userCount, verifyPassword } from "./auth.js";
+import { createUser, login, verifyToken, userCount, verifyPassword, setPin, hasPin, checkPin, unlockByPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices, fetchDailyBars, findUnusualVolume } from "./prices.js";
@@ -156,6 +156,62 @@ route("POST", "/api/auth/login", async (ctx) => {
   if (!session) throw httpError(401, "Sai tên đăng nhập hoặc mật khẩu");
   return session;
 }, { auth: false });
+
+/* ---- khóa màn hình ---- */
+
+route("GET", "/api/lock", (ctx) => {
+  const s = Object.fromEntries(
+    q.all("SELECT key,value FROM settings WHERE user_id=? AND key LIKE 'lock_%'", ctx.userId)
+      .map((r) => [r.key, r.value])
+  );
+  return {
+    co_pin: !!s.lock_pin_hash,
+    phut_cho: s.lock_minutes ? Number(s.lock_minutes) : 3,
+    khoa_khi_an: s.lock_on_hide !== "0",
+    sai_lien_tiep: Number(s.lock_fails || 0),
+  };
+});
+
+route("POST", "/api/lock/settings", (ctx) => {
+  const b = ctx.body || {};
+  const put = (k, v) => q.run(
+    "INSERT INTO settings (user_id,key,value) VALUES (?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value",
+    ctx.userId, k, String(v)
+  );
+  if (b.phut_cho !== undefined) {
+    const v = Number(b.phut_cho);
+    // 0 nghia la tat khoa theo thoi gian. Tren 60 phut thi khoa khong con y
+    // nghia gi voi mot cai dien thoai de tren ban.
+    if (!Number.isFinite(v) || v < 0 || v > 60) throw httpError(400, "Thời gian chờ phải từ 0 đến 60 phút");
+    put("lock_minutes", v);
+  }
+  if (b.khoa_khi_an !== undefined) put("lock_on_hide", b.khoa_khi_an ? "1" : "0");
+  return { ok: true };
+});
+
+route("POST", "/api/lock/pin", (ctx) => {
+  const b = ctx.body || {};
+  try {
+    return setPin(ctx.userId, b.pin === null || b.pin === "" ? null : String(b.pin), String(b.password || ""));
+  } catch (e) {
+    throw httpError(400, e.message);
+  }
+});
+
+route("POST", "/api/lock/unlock", (ctx) => {
+  const b = ctx.body || {};
+  if (b.password) {
+    if (!unlockByPassword(ctx.userId, String(b.password))) throw httpError(401, "Mật khẩu không đúng");
+    return { ok: true };
+  }
+  const r = checkPin(ctx.userId, b.pin);
+  if (!r.ok) {
+    throw httpError(401, r.khoa_cung
+      ? "Sai quá nhiều lần. Mở khóa bằng mật khẩu đăng nhập."
+      : `Mã PIN không đúng. Còn ${r.con_lai} lần thử.`);
+  }
+  return { ok: true };
+});
 
 /* ---- nạp toàn bộ dữ liệu ban đầu ---- */
 

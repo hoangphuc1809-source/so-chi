@@ -86,3 +86,96 @@ export function login(username, password) {
 }
 
 export const userCount = () => q.get("SELECT COUNT(*) AS n FROM users").n;
+
+/* ==================== Khóa màn hình ==================== */
+
+/**
+ * Mã PIN mở khóa màn hình.
+ *
+ * Đây là lớp che mắt người ngồi cạnh, KHÔNG phải lớp bảo mật thật. Ai cầm được
+ * máy đã đăng nhập vẫn có thể lấy token trong trình duyệt và gọi thẳng API.
+ * Mục đích duy nhất là để người khác cầm điện thoại lên không đọc được ngay số
+ * dư — đúng thứ người dùng cần khi để máy trên bàn.
+ *
+ * Vẫn băm bằng scrypt như mật khẩu chính. PIN chỉ 4-6 chữ số nên rất dễ dò,
+ * nhưng băm chậm khiến việc dò trên dữ liệu lấy trộm tốn kém hơn nhiều so với
+ * lưu thẳng, mà chi phí thì không đáng kể vì mỗi lần mở khóa chỉ băm một lần.
+ */
+const PIN_RE = /^\d{4,6}$/;
+const MAX_SAI = 5;
+
+export function setPin(userId, pin, currentPassword) {
+  const user = q.get("SELECT * FROM users WHERE id=?", userId);
+  if (!user) throw new Error("Không tìm thấy tài khoản");
+
+  // Đổi hoặc gỡ PIN đều phải nhập mật khẩu chính. Nếu không, người cầm được
+  // máy đang mở khóa chỉ cần vào cài đặt gỡ PIN là xong — khóa thành vô nghĩa.
+  if (!verifyPassword(currentPassword, user.salt, user.pass_hash)) {
+    throw new Error("Mật khẩu đăng nhập không đúng");
+  }
+
+  if (pin === null || pin === "") {
+    q.run("DELETE FROM settings WHERE user_id=? AND key IN ('lock_pin_hash','lock_pin_salt','lock_fails')", userId);
+    return { co_pin: false };
+  }
+  if (!PIN_RE.test(String(pin))) throw new Error("Mã PIN phải là 4 đến 6 chữ số");
+
+  const { hash, salt } = hashPassword(String(pin));
+  const put = (k, v) => q.run(
+    "INSERT INTO settings (user_id,key,value) VALUES (?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value",
+    userId, k, v
+  );
+  put("lock_pin_hash", hash);
+  put("lock_pin_salt", salt);
+  put("lock_fails", "0");
+  return { co_pin: true };
+}
+
+export function hasPin(userId) {
+  return !!q.get("SELECT value FROM settings WHERE user_id=? AND key='lock_pin_hash'", userId);
+}
+
+/**
+ * Kiểm tra PIN khi mở khóa.
+ *
+ * Sai quá số lần cho phép thì báo phải đăng nhập lại bằng mật khẩu. Không có
+ * bước này thì PIN bốn số dò hết trong vài phút.
+ */
+export function checkPin(userId, pin) {
+  const row = (k) => {
+    const r = q.get("SELECT value FROM settings WHERE user_id=? AND key=?", userId, k);
+    return r ? r.value : null;
+  };
+  const hash = row("lock_pin_hash");
+  const salt = row("lock_pin_salt");
+  if (!hash || !salt) return { ok: true, khong_dat_pin: true };
+
+  const fails = Number(row("lock_fails") || 0);
+  if (fails >= MAX_SAI) {
+    return { ok: false, khoa_cung: true, con_lai: 0 };
+  }
+
+  const setFails = (n) => q.run(
+    "INSERT INTO settings (user_id,key,value) VALUES (?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value",
+    userId, "lock_fails", String(n)
+  );
+
+  if (verifyPassword(String(pin || ""), salt, hash)) {
+    setFails(0);
+    return { ok: true };
+  }
+  const moi = fails + 1;
+  setFails(moi);
+  return { ok: false, khoa_cung: moi >= MAX_SAI, con_lai: Math.max(MAX_SAI - moi, 0) };
+}
+
+/** Mở khóa bằng mật khẩu chính — lối thoát khi quên PIN hoặc đã nhập sai quá nhiều. */
+export function unlockByPassword(userId, password) {
+  const user = q.get("SELECT * FROM users WHERE id=?", userId);
+  if (!user || !verifyPassword(password, user.salt, user.pass_hash)) return false;
+  q.run(
+    "INSERT INTO settings (user_id,key,value) VALUES (?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value",
+    userId, "lock_fails", "0"
+  );
+  return true;
+}

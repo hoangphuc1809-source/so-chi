@@ -156,7 +156,7 @@ function Reports({ month, setMonth, flash }) {
 
 /* ============================ Cài đặt ============================ */
 
-function Settings({ data, reload, flash, theme, setTheme, onLogout }) {
+function Settings({ data, reload, flash, theme, setTheme, onLogout, lockCfg, onOpenLock }) {
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -237,6 +237,26 @@ function Settings({ data, reload, flash, theme, setTheme, onLogout }) {
             options={[{ id: "light", label: "Sáng" }, { id: "dark", label: "Tối" }, { id: "auto", label: "Theo hệ thống" }]}
             value={theme} onChange={setTheme} />
         </div>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <SectionLabel>Khóa màn hình</SectionLabel>
+        <button onClick={onOpenLock} className="box between"
+          style={{ padding: 14, marginTop: 12, width: "100%", textAlign: "left" }}>
+          <div>
+            <div style={{ fontSize: 14 }}>
+              {lockCfg && lockCfg.co_pin ? "Đang bật" : "Chưa đặt mã PIN"}
+            </div>
+            <div style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 3 }}>
+              {lockCfg && lockCfg.co_pin
+                ? (lockCfg.phut_cho
+                    ? `Khóa sau ${lockCfg.phut_cho} phút không dùng` + (lockCfg.khoa_khi_an ? ", và khi thoát ra" : "")
+                    : (lockCfg.khoa_khi_an ? "Chỉ khóa khi thoát ra" : "Không tự khóa"))
+                : "Che số dư khi bạn rời máy"}
+            </div>
+          </div>
+          <span style={{ color: cssVar("--muted") }}>›</span>
+        </button>
       </section>
 
       <section style={{ marginBottom: 28 }}>
@@ -334,6 +354,8 @@ function App() {
   const [entry, setEntry] = useState(null); // {initial} | {prefill} | null
   const [toast, setToast] = useState("");
   const [theme, setThemeState] = useState(localStorage.getItem("sochi:theme") || "auto");
+  const [showLock, setShowLock] = useState(false);
+  const { cfg: lockCfg, locked, unlock, reloadLock } = useScreenLock(phase === "ready");
 
   const flash = useCallback((msg) => {
     setToast(msg);
@@ -437,6 +459,10 @@ function App() {
 
   const showMonthNav = tab === "home" || tab === "reports";
 
+  // Man khoa che truoc toan bo phan con lai. Dat o day chu khong long ben
+  // trong: neu ve chong len noi dung thi chi can mot loi CSS la so du lo ra.
+  if (locked) return <LockScreen onUnlock={unlock} />;
+
   return (
     <div>
       <div className="shell">
@@ -482,6 +508,7 @@ function App() {
         {tab === "assistant" && <Assistant data={data} month={month} flash={flash} />}
         {tab === "settings" && (
           <Settings data={data} reload={reload} flash={flash}
+            lockCfg={lockCfg} onOpenLock={() => setShowLock(true)}
             theme={theme} setTheme={setTheme} onLogout={logout} />
         )}
       </div>
@@ -512,6 +539,10 @@ function App() {
           onSaved={onSaved} onDeleted={onDeleted} onClose={() => setEntry(null)} />
       )}
 
+      {showLock && (
+        <LockSettings cfg={lockCfg} flash={flash} onClose={() => setShowLock(false)}
+          onSaved={reloadLock} />
+      )}
       <Toast msg={toast} />
     </div>
   );
