@@ -3883,7 +3883,11 @@ function InvestAnalysis({
       marginTop: 6,
       lineHeight: 1.7
     }
-  }, mi.tu_ngay, " → ", mi.den_ngay, " · ", mi.so_ngay_vay, " ngày có dư nợ", React.createElement("br", null), "dư nợ cao nhất ", short(mi.du_no_cao_nhat), " ngày ", mi.ngay_du_no_cao_nhat, mi.moc_doi_chieu_truoc ? React.createElement(React.Fragment, null, React.createElement("br", null), "tính từ mốc đối chiếu ", mi.moc_doi_chieu_truoc) : React.createElement(React.Fragment, null, React.createElement("br", null), "chưa có mốc đối chiếu nào, tính từ giao dịch đầu tiên")), React.createElement("div", {
+  }, mi.tu_ngay, " → ", mi.den_ngay, " · ", mi.so_ngay_vay, " ngày có dư nợ", React.createElement("br", null), "dư nợ cao nhất ", short(mi.du_no_cao_nhat), " ngày ", mi.ngay_du_no_cao_nhat, mi.moc_doi_chieu_truoc ? React.createElement(React.Fragment, null, React.createElement("br", null), "tính từ mốc đối chiếu ", mi.moc_doi_chieu_truoc) : React.createElement(React.Fragment, null, React.createElement("br", null), "chưa có mốc đối chiếu nào"), mi.bo_qua_truoc_khoi_tao && React.createElement(React.Fragment, null, React.createElement("br", null), React.createElement("span", {
+    style: {
+      color: cssVar("--amber")
+    }
+  }, "không tính giai đoạn trước ngày khởi tạo sổ (", mi.ngay_khoi_tao, ") — sổ không có thông tin dư nợ của giai đoạn đó"))), React.createElement("div", {
     className: "between",
     style: {
       marginTop: 12,

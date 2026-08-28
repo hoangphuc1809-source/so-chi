@@ -526,7 +526,13 @@ function InvestAnalysis({ onClose, flash }) {
               <br />dư nợ cao nhất {short(mi.du_no_cao_nhat)} ngày {mi.ngay_du_no_cao_nhat}
               {mi.moc_doi_chieu_truoc
                 ? <><br />tính từ mốc đối chiếu {mi.moc_doi_chieu_truoc}</>
-                : <><br />chưa có mốc đối chiếu nào, tính từ giao dịch đầu tiên</>}
+                : <><br />chưa có mốc đối chiếu nào</>}
+              {mi.bo_qua_truoc_khoi_tao && (
+                <><br /><span style={{ color: cssVar("--amber") }}>
+                  không tính giai đoạn trước ngày khởi tạo sổ ({mi.ngay_khoi_tao}) — sổ không có
+                  thông tin dư nợ của giai đoạn đó
+                </span></>
+              )}
             </div>
             <div className="between" style={{ marginTop: 12, gap: 8 }}>
               <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}

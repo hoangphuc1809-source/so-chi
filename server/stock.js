@@ -810,9 +810,28 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
 
   const end = to && isDate(to) ? to : new Date().toISOString().slice(0, 10);
   const prev = lastReconcile(userId);
-  const start = from && isDate(from)
+  let start = from && isDate(from)
     ? from
     : prev ? prev.date : [...txs].sort((a, b) => (a.date < b.date ? -1 : 1))[0].date;
+
+  // KHÔNG tính lãi cho giai đoạn trước ngày khởi tạo sổ.
+  //
+  // Engine có quy tắc: giao dịch trước ngày khởi tạo chỉ tạo vị thế, không đụng
+  // tiền mặt — vì số dư khai lúc khởi tạo đã phản ánh chúng. Nhưng khi chạy lại
+  // sổ theo từng ngày, những ngày trước ngày khởi tạo chưa "thấy" giao dịch
+  // INIT_CASH nào, nên engine tưởng là chưa khởi tạo và trừ tiền thật cho từng
+  // lệnh mua. Kết quả là một khoản dư nợ ảo bằng tổng tiền mua, và lãi bị thổi
+  // lên nhiều lần.
+  //
+  // Cách xử lý đúng không phải là vá công thức mà là thừa nhận giới hạn: sổ
+  // không biết gì về dư nợ trước ngày khởi tạo, nên không có cơ sở nào để tính
+  // lãi cho giai đoạn đó.
+  const initDate = txs.find((t) => t.type === "INIT_CASH")?.date || null;
+  let bo_qua_truoc_khoi_tao = false;
+  if (initDate && start < initDate) {
+    start = initDate;
+    bo_qua_truoc_khoi_tao = true;
+  }
 
   const daily = rate / 100 / 365;
   const sorted = [...txs].sort((a, b) => (a.date === b.date ? a.seq - b.seq : a.date < b.date ? -1 : 1));
@@ -842,6 +861,8 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
     ok: true,
     tu_ngay: start, den_ngay: end,
     moc_doi_chieu_truoc: prev ? prev.date : null,
+    ngay_khoi_tao: initDate,
+    bo_qua_truoc_khoi_tao,
     lai_suat_nam: rate,
     so_ngay_vay: borrowDays,
     du_no_cao_nhat: peak,
