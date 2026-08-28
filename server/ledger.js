@@ -152,3 +152,50 @@ function settleDate(dateISO) {
 }
 
 export { rebuild, settleDate, daysBetween };
+
+/* ==================== Ngày và giờ theo múi giờ Việt Nam ==================== */
+
+/**
+ * Ngày hôm nay theo giờ Việt Nam.
+ *
+ * KHÔNG dùng new Date().toISOString() để lấy ngày. Chuỗi đó là giờ UTC, chậm
+ * hơn Việt Nam 7 tiếng, nên từ 00:00 đến 07:00 giờ Việt Nam nó vẫn trả về ngày
+ * hôm trước. Mở app lúc 6 giờ sáng là cả sổ lùi một ngày: cổ phiếu đáng lẽ đã
+ * về thì báo còn chờ, lịch quyền lệch, báo cáo tháng rơi nhầm kỳ.
+ */
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+export function nowVN() {
+  const d = new Date(Date.now() + VN_OFFSET_MS);
+  return {
+    date: d.toISOString().slice(0, 10),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+  };
+}
+
+export function todayVN() {
+  return nowVN().date;
+}
+
+/**
+ * Chứng khoán hoặc tiền đã thực sự về tài khoản chưa.
+ *
+ * Chu kỳ thanh toán là T+2, nhưng chứng khoán chỉ về tài khoản khoảng 13 giờ
+ * ngày T+2 nên buổi sáng hôm đó vẫn chưa bán được — thị trường Việt Nam quen
+ * gọi là T+2,5.
+ *
+ * Coi cả ngày T+2 là bán được sẽ khiến app báo bán được vào lúc 9 giờ sáng,
+ * trong khi lệnh bán đặt lúc đó sẽ bị công ty chứng khoán từ chối.
+ *
+ * Lấy mốc 13:00 cho an toàn: giờ về thực tế dao động quanh 12:00–13:30 tùy công
+ * ty chứng khoán, và báo về muộn hơn thực tế thì chỉ mất một phiên chiều, còn
+ * báo sớm hơn thực tế thì dẫn tới một lệnh bán bị từ chối.
+ */
+const GIO_VE_TAI_KHOAN = 13;
+
+export function daVeTaiKhoan(settle, now = nowVN()) {
+  if (settle < now.date) return true;
+  if (settle > now.date) return false;
+  return now.hour >= GIO_VE_TAI_KHOAN;
+}

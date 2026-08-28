@@ -1,5 +1,5 @@
 import { q, db, uid, now } from "./db.js";
-import { rebuild, settleDate, daysBetween } from "./ledger.js";
+import { rebuild, settleDate, daysBetween, todayVN, nowVN, daVeTaiKhoan } from "./ledger.js";
 
 /**
  * Biểu phí của tài khoản này.
@@ -134,18 +134,24 @@ export function reconcile(userId, expected) {
 export function positions(userId) {
   const st = state(userId);
   if (st.error) return { error: st.error };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayVN();
 
+  const gio = nowVN();
   const list = Object.entries(st.positions).map(([symbol, p]) => {
-    // CP mua xong phai cho ve tai khoan (T+2) moi ban duoc.
+    // CP mua xong phai cho ve tai khoan moi ban duoc. Chu ky la T+2 nhung CP
+    // chi ve khoang 13 gio ngay T+2, nen sang hom do van chua ban duoc — thi
+    // truong Viet Nam quen goi la T+2,5.
     // Tinh theo tung lo vi cac lo mua khac ngay se ve khac ngay.
     let sellable = 0;
     const pending = [];
     for (const lot of p.lots) {
       const settle = settleDate(lot.date);
       // rebuild() doi ten khi tra ve: trong queue la `remaining`, ra ngoai la `qty`.
-      if (settle <= today) sellable += lot.qty;
-      else pending.push({ qty: lot.qty, buy_date: lot.date, settle_date: settle });
+      if (daVeTaiKhoan(settle, gio)) sellable += lot.qty;
+      else pending.push({
+        qty: lot.qty, buy_date: lot.date, settle_date: settle,
+        ve_chieu_nay: settle === gio.date,
+      });
     }
     return {
       symbol,
@@ -314,15 +320,17 @@ export function realizedTrades(userId) {
 export function cashFlow(userId) {
   const st = state(userId);
   if (st.error) return { error: st.error };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayVN();
 
+  const gio = nowVN();
   const pending = [];
   for (const r of st.realized || []) {
     const settle = settleDate(r.date);
-    if (settle > today) {
+    if (!daVeTaiKhoan(settle, gio)) {
       pending.push({
         symbol: r.symbol, qty: r.qty, sell_date: r.date,
         settle_date: settle, amount: r.proceedsNet,
+        ve_chieu_nay: settle === gio.date,
       });
     }
   }
@@ -731,7 +739,7 @@ export function parseBatch(userId, text) {
     COTUC: "DIVIDEND_CASH", LAIVAY: "INTEREST", DIEUCHINH: "ADJUSTMENT",
     THUONG: "STOCK_BONUS",
   };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayVN();
 
   const parseMoney = (s) => {
     const t = String(s).toLowerCase().replace(/[.,\s]/g, (m) => (m === "," ? "." : ""));
@@ -886,7 +894,7 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
   const txs = loadTxs(userId);
   if (!txs.length) return { ok: true, uoc_tinh: 0, so_ngay_vay: 0, lai_suat_nam: rate, ngay: [] };
 
-  const end = to && isDate(to) ? to : new Date().toISOString().slice(0, 10);
+  const end = to && isDate(to) ? to : todayVN();
   const prev = lastReconcile(userId);
   let start = from && isDate(from)
     ? from
@@ -962,7 +970,7 @@ export function marginInterest(userId, { annualRate, from, to } = {}) {
 export function holdingDays(userId) {
   const st = state(userId);
   if (st.error) return { error: st.error };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayVN();
 
   const rows = Object.entries(st.positions).map(([symbol, p]) => {
     const lots = p.lots.map((l) => ({
@@ -1198,7 +1206,7 @@ export function findDuplicates(userId, txs) {
  * chốt rồi, tiền chưa về" chứ không phải chỉ mỗi lịch phía trước.
  */
 export function eventsBySymbol(userId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayVN();
   const past = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
 
   const rows = q.all(

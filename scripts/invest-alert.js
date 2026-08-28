@@ -20,11 +20,12 @@
 import { q } from "../server/db.js";
 import { state, getAlerts, cashFlow, eventsBySymbol } from "../server/stock.js";
 import { fetchPrices, fetchDailyBars, findUnusualVolume } from "../server/prices.js";
+import { todayVN } from "../server/ledger.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT = process.env.TELEGRAM_CHAT_ID;
 
-const today = new Date().toISOString().slice(0, 10);
+const today = todayVN();
 const nf = new Intl.NumberFormat("vi-VN");
 const money = (n) => nf.format(Math.round(n || 0)) + " đ";
 const gia = (n) => nf.format(Math.round(n || 0));

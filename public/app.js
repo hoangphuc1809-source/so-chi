@@ -2330,17 +2330,17 @@ function Invest({
     className: "num",
     style: {
       fontSize: 11,
-      color: cssVar("--muted"),
+      color: p.ve_chieu_nay ? cssVar("--amber") : cssVar("--muted"),
       marginTop: 6
     }
-  }, p.symbol, " ", nf.format(p.qty), " cp bán ", p.sell_date, " · về ", p.settle_date, " · ", short(p.amount))), React.createElement("div", {
+  }, p.symbol, " ", nf.format(p.qty), " cp bán ", p.sell_date, " ·", " ", p.ve_chieu_nay ? "về chiều nay từ 13h" : `về ${p.settle_date}`, " · ", short(p.amount))), React.createElement("div", {
     style: {
       fontSize: 11,
       color: cssVar("--muted"),
       marginTop: 8,
       lineHeight: 1.6
     }
-  }, "Sổ đã ghi nhận số tiền này ngay lúc bán, nhưng phải chờ T+2 mới rút hay mua tiếp được.")), s.margin_debt > 0 && s.stock_value > 0 && React.createElement("section", {
+  }, "Sổ ghi nhận tiền ngay lúc bán, nhưng tiền chỉ về tài khoản khoảng 13h ngày T+2 — trước lúc đó chưa rút hay mua tiếp được.")), s.margin_debt > 0 && s.stock_value > 0 && React.createElement("section", {
     style: {
       marginBottom: 24
     }
@@ -2417,7 +2417,7 @@ function Invest({
       marginTop: 4,
       color: cssVar("--amber")
     }
-  }, "bán được ", nf.format(p.sellable), " cp · còn ", nf.format(p.pending_qty), " cp chờ về", p.pending && p.pending[0] ? ` ngày ${p.pending[0].settle_date}` : "") : React.createElement("div", {
+  }, "bán được ", nf.format(p.sellable), " cp · còn ", nf.format(p.pending_qty), " cp chờ về", p.pending && p.pending[0] ? p.pending[0].ve_chieu_nay ? " chiều nay từ 13h" : ` ngày ${p.pending[0].settle_date}` : "") : React.createElement("div", {
     className: "num",
     style: {
       fontSize: 11,
