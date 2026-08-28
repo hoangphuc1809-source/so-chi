@@ -923,7 +923,10 @@ function serveStatic(req, res, urlPath) {
   if (!file.startsWith(PUBLIC)) return json(res, 403, { error: "Không hợp lệ" });
   fs.readFile(file, (err, data) => {
     if (err) {
-      // SPA fallback
+      // Chi tra khung SPA cho duong dan khong co phan mo rong. Truoc day moi
+      // file thieu deu tra ve index.html kem status 200, nen mot anh hong lai
+      // duoc trinh duyet nhan la HTML — kho lan ra nguyen nhan.
+      if (path.extname(rel)) return json(res, 404, { error: "Không tìm thấy" });
       fs.readFile(path.join(PUBLIC, "index.html"), (e2, html) => {
         if (e2) return json(res, 404, { error: "Không tìm thấy" });
         res.writeHead(200, { "Content-Type": MIME[".html"] });
@@ -931,9 +934,12 @@ function serveStatic(req, res, urlPath) {
       });
       return;
     }
+    // sw.js phai luon lay ban moi. Neu trinh duyet giu ban cu thi lan trien
+    // khai sau se khong toi duoc may nguoi dung da cai app.
+    const luon_moi = rel === "index.html" || rel === "sw.js";
     res.writeHead(200, {
       "Content-Type": MIME[path.extname(file)] || "application/octet-stream",
-      "Cache-Control": rel === "index.html" ? "no-cache" : "public, max-age=300",
+      "Cache-Control": luon_moi ? "no-cache" : "public, max-age=300",
     });
     res.end(data);
   });

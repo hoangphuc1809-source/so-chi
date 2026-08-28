@@ -9,6 +9,10 @@
 <meta name="robots" content="noindex, nofollow" />
 <title>Sổ Chi</title>
 <link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -103,5 +107,14 @@
 <body>
 <div id="root"><div id="boot">Đang mở sổ…</div></div>
 <script src="/app.js"></script>
+<script>
+  // Dang ky service worker de app cai duoc ra man hinh chinh.
+  // Chi giu phan vo tinh trong cache; so lieu tai chinh luon hoi may chu.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
+</script>
 </body>
 </html>
