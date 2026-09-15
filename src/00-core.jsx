@@ -135,7 +135,7 @@ function Chips({ options, value, onChange, accent }) {
     <div className="wrap">
       {options.map((o) => {
         const on = o.id === value;
-        const bg = accent && o.varname ? cssVar(o.varname) : cssVar("--ink");
+        const bg = accent && o.varname ? cssVar(o.varname) : cssVar("--primary");
         return (
           <button key={o.id} onClick={() => onChange(o.id)}
             style={{
@@ -155,7 +155,7 @@ function Chips({ options, value, onChange, accent }) {
 function Button({ children, onClick, kind = "primary", disabled, style }) {
   const base = { fontSize: 15, fontWeight: 600, padding: "12px 20px", borderRadius: 99, ...style };
   const kinds = {
-    primary: { background: disabled ? cssVar("--track") : cssVar("--ink"), color: disabled ? cssVar("--muted") : cssVar("--onink") },
+    primary: { background: disabled ? cssVar("--track") : cssVar("--primary"), color: disabled ? cssVar("--muted") : cssVar("--onprimary") },
     ghost: { background: "transparent", color: cssVar("--muted"), fontWeight: 400 },
     outline: { background: cssVar("--card"), border: `1px solid ${cssVar("--line")}`, fontWeight: 500, fontSize: 14 },
     danger: { background: "transparent", color: cssVar("--red"), fontWeight: 500, fontSize: 14 },
@@ -201,6 +201,21 @@ function Sheet({ title, onClose, children, footer }) {
         <div className="pad" style={{ paddingTop: 20 }}>{children}</div>
         {footer && <div className="pad" style={{ paddingTop: 8 }}>{footer}</div>}
       </div>
+    </div>
+  );
+}
+
+function Callout({ children }) {
+  return (
+    <div className="callout">
+      <div className="callout-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18h6M10 21h4" />
+          <path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
+        </svg>
+      </div>
+      <div className="callout-body">{children}</div>
     </div>
   );
 }

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="vi" data-theme="light">
+<html lang="vi" data-theme="navygold">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-<meta name="theme-color" content="#FAFAF7" />
+<meta name="theme-color" content="#0B1B2E" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Sổ Chi" />
 <meta name="robots" content="noindex, nofollow" />
@@ -15,7 +15,21 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<script>
+  /* Ap theme truoc khi ve de khong nhay trang. Lan dau sau khi ra mat Navy Gold: chuyen sang Navy Gold mot lan. */
+  (function () {
+    try {
+      if (!localStorage.getItem("sochi:ng-rollout")) {
+        localStorage.setItem("sochi:theme", "navygold");
+        localStorage.setItem("sochi:ng-rollout", "1");
+      }
+      var t = localStorage.getItem("sochi:theme") || "navygold";
+      if (t === "auto") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  })();
+</script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <style>
@@ -33,6 +47,9 @@
     --red:    #DC2626;
     --onink:  #FFFFFF;
     --shadow: 0 1px 2px rgba(15,23,41,.05);
+    --primary: var(--ink);
+    --onprimary: var(--onink);
+    --nav: var(--card);
   }
   [data-theme="dark"] {
     --paper:  #10131A;
@@ -49,6 +66,47 @@
     --onink:  #10131A;
     --shadow: none;
   }
+
+  /* ===== Navy Gold v1: nen navy ro den, net vang manh, vang dac chi cho hanh dong chinh ===== */
+  [data-theme="navygold"] {
+    --paper:  #0B1B2E;
+    --card:   #102540;
+    --ink:    #F4EEDF;
+    --muted:  #A3B4CA;
+    --line:   rgba(227,185,85,.18);
+    --track:  #1A3352;
+    --chip:   #1A3352;
+    --blue:   #E3B955;
+    --green:  #6FCB9F;
+    --amber:  #E8935A;
+    --red:    #EE7F76;
+    --onink:  #0B1B2E;
+    --shadow: none;
+    --primary: #E3B955;
+    --onprimary: #0B1B2E;
+    --nav:    #07121F;
+    --gold-soft: #F1D38B;
+    color-scheme: dark;
+  }
+  [data-theme="navygold"] body {
+    font-family: 'Be Vietnam Pro', system-ui, 'Segoe UI', sans-serif;
+    background: radial-gradient(ellipse 90% 360px at 50% 0, rgba(140,170,210,.15), transparent 75%) no-repeat, var(--paper);
+  }
+  [data-theme="navygold"] .num { font-family: 'Be Vietnam Pro', system-ui, sans-serif; letter-spacing: -.005em; }
+  [data-theme="navygold"] .label { color: var(--primary); opacity: .85; }
+  [data-theme="navygold"] .box { background: linear-gradient(180deg, rgba(227,185,85,.04), rgba(227,185,85,0) 55%), var(--card); }
+  [data-theme="navygold"] .tape::before { border-top-color: rgba(227,185,85,.14); }
+  [data-theme="navygold"] .hero-num { font-weight: 300 !important; letter-spacing: -.03em !important; text-shadow: 0 0 28px rgba(227,185,85,.28); }
+  [data-theme="navygold"] .sheet { background: radial-gradient(ellipse 90% 300px at 50% 0, rgba(140,170,210,.12), transparent 75%) no-repeat, var(--paper); }
+  [data-theme="navygold"] .callout { border-color: rgba(227,185,85,.5); }
+  [data-theme="navygold"] .callout-body strong { color: var(--gold-soft); }
+  [data-theme="navygold"] ::selection { background: rgba(227,185,85,.35); }
+
+  /* Khoi "Y chinh": dai mau dac ben trai + noi dung */
+  .callout { display: grid; grid-template-columns: 50px 1fr; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+  .callout-mark { background: var(--primary); color: var(--onprimary); display: grid; place-items: center; }
+  .callout-body { padding: 12px 14px; font-size: 13px; line-height: 1.55; }
+  .callout-body strong { font-weight: 600; }
 
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }

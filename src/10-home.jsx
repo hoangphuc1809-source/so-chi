@@ -51,11 +51,28 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
     return Object.entries(g);
   }, [monthTxs]);
 
+  // Du bao cuoi thang: chi tinh cac danh muc co dat ngan sach, chi cho thang hien tai.
+  const pace = useMemo(() => {
+    const today = todayISO();
+    if (month !== monthOf(today)) return null;
+    const day = Number(today.slice(8, 10));
+    if (day < 3) return null;
+    const budgeted = categories.filter((c) => (c.budget || 0) > 0);
+    const budget = budgeted.reduce((s, c) => s + c.budget, 0);
+    if (budget <= 0) return null;
+    const ids = new Set(budgeted.map((c) => String(c.id)));
+    const spent = monthTxs.filter((t) => ids.has(String(t.category_id))).reduce((s, t) => s + t.amount, 0);
+    if (spent <= 0) return null;
+    const [y, m] = month.split("-").map(Number);
+    const proj = (spent / day) * new Date(y, m, 0).getDate();
+    return { proj, over: proj - budget };
+  }, [month, categories, monthTxs]);
+
   return (
     <div className="pad">
       <section style={{ padding: "24px 0 18px" }}>
         <div style={{ fontSize: 12, color: cssVar("--muted") }}>Đã chi trong tháng</div>
-        <div className="num" style={{ fontSize: 38, fontWeight: 700, letterSpacing: "-.02em", marginTop: 2 }}>
+        <div className="num hero-num" style={{ fontSize: 38, fontWeight: 700, letterSpacing: "-.02em", marginTop: 2 }}>
           {money(total)}
         </div>
         {prevTotal > 0 && (
@@ -64,6 +81,20 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
           </div>
         )}
       </section>
+
+      {pace && (
+        <section style={{ marginBottom: 20 }}>
+          <Callout>
+            {pace.over > 0 ? (
+              <>Theo nhịp chi hiện tại, cuối tháng các mục có ngân sách sẽ lên khoảng{" "}
+                <strong className="num">{short(pace.proj)}, vượt {short(pace.over)}.</strong></>
+            ) : (
+              <>Theo nhịp chi hiện tại, cuối tháng các mục có ngân sách khoảng {short(pace.proj)},{" "}
+                <strong className="num">còn dư {short(-pace.over)}.</strong></>
+            )}
+          </Callout>
+        </section>
+      )}
 
       {(alerts.length > 0 || debt > 0) && (
         <section className="grid2" style={{ marginBottom: 24 }}>
@@ -121,7 +152,7 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
                 style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
                 <div style={{
                   height: Math.max((t.total / maxTrend) * 62, t.total > 0 ? 3 : 1),
-                  background: t.ym === month ? cssVar("--ink") : cssVar("--track"),
+                  background: t.ym === month ? cssVar("--primary") : cssVar("--track"),
                   borderRadius: "3px 3px 0 0",
                 }} />
                 <div className="num" style={{ fontSize: 11, marginTop: 6, color: t.ym === month ? cssVar("--ink") : cssVar("--muted") }}>
@@ -319,7 +350,7 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
               background: "transparent", outline: "none", letterSpacing: "-.02em", padding: 0 }} />
           <span className="num" style={{ fontSize: 20, color: cssVar("--muted") }}>₫</span>
         </div>
-        <div style={{ height: 1, background: cssVar("--ink"), marginTop: 4 }} />
+        <div style={{ height: 1, background: cssVar("--primary"), marginTop: 4 }} />
         <div className="num" style={{ fontSize: 12, color: cssVar("--muted"), marginTop: 8, minHeight: 16 }}>
           {amountNum > 0 && money(amountNum)}
         </div>
@@ -355,9 +386,9 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
             return (
               <button key={c.id} onClick={() => { setCategoryId(c.id); setSub(""); }}
                 style={{ padding: "12px 0", borderRadius: 12,
-                  background: on ? cssVar("--ink") : cssVar("--card"),
-                  color: on ? cssVar("--onink") : cssVar("--ink"),
-                  border: `1px solid ${on ? cssVar("--ink") : cssVar("--line")}` }}>
+                  background: on ? cssVar("--primary") : cssVar("--card"),
+                  color: on ? cssVar("--onprimary") : cssVar("--ink"),
+                  border: `1px solid ${on ? cssVar("--primary") : cssVar("--line")}` }}>
                 <div style={{ fontSize: 18 }}>{c.icon}</div>
                 <div className="truncate" style={{ fontSize: 11, marginTop: 2, padding: "0 2px" }}>{c.name}</div>
               </button>

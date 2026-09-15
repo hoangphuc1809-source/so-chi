@@ -430,8 +430,8 @@ function Assistant({ data, month, flash }) {
               <div style={{
                 maxWidth: "86%", padding: "10px 14px", borderRadius: 14, fontSize: 14, lineHeight: 1.6,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
-                background: m.role === "user" ? cssVar("--ink") : cssVar("--card"),
-                color: m.role === "user" ? cssVar("--onink") : (m.error ? cssVar("--red") : cssVar("--ink")),
+                background: m.role === "user" ? cssVar("--primary") : cssVar("--card"),
+                color: m.role === "user" ? cssVar("--onprimary") : (m.error ? cssVar("--red") : cssVar("--ink")),
                 border: m.role === "user" ? "none" : `1px solid ${cssVar("--line")}`,
               }}>
                 {m.text}

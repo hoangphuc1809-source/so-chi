@@ -14,7 +14,7 @@
  * ban cu.
  */
 
-const VERSION = "so-chi-v3";
+const VERSION = "so-chi-v4";
 const VO_TINH = [
   "/",
   "/app.js",

@@ -182,7 +182,7 @@ function Chips({
     className: "wrap"
   }, options.map(o => {
     const on = o.id === value;
-    const bg = accent && o.varname ? cssVar(o.varname) : cssVar("--ink");
+    const bg = accent && o.varname ? cssVar(o.varname) : cssVar("--primary");
     return React.createElement("button", {
       key: o.id,
       onClick: () => onChange(o.id),
@@ -213,8 +213,8 @@ function Button({
   };
   const kinds = {
     primary: {
-      background: disabled ? cssVar("--track") : cssVar("--ink"),
-      color: disabled ? cssVar("--muted") : cssVar("--onink")
+      background: disabled ? cssVar("--track") : cssVar("--primary"),
+      color: disabled ? cssVar("--muted") : cssVar("--onprimary")
     },
     ghost: {
       background: "transparent",
@@ -320,6 +320,31 @@ function Sheet({
       paddingTop: 8
     }
   }, footer)));
+}
+function Callout({
+  children
+}) {
+  return React.createElement("div", {
+    className: "callout"
+  }, React.createElement("div", {
+    className: "callout-mark",
+    "aria-hidden": "true"
+  }, React.createElement("svg", {
+    width: "22",
+    height: "22",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("path", {
+    d: "M9 18h6M10 21h4"
+  }), React.createElement("path", {
+    d: "M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"
+  }))), React.createElement("div", {
+    className: "callout-body"
+  }, children));
 }
 function Empty({
   text,
@@ -494,6 +519,24 @@ function Home({
     monthTxs.forEach(t => (g[t.date] = g[t.date] || []).push(t));
     return Object.entries(g);
   }, [monthTxs]);
+  const pace = useMemo(() => {
+    const today = todayISO();
+    if (month !== monthOf(today)) return null;
+    const day = Number(today.slice(8, 10));
+    if (day < 3) return null;
+    const budgeted = categories.filter(c => (c.budget || 0) > 0);
+    const budget = budgeted.reduce((s, c) => s + c.budget, 0);
+    if (budget <= 0) return null;
+    const ids = new Set(budgeted.map(c => String(c.id)));
+    const spent = monthTxs.filter(t => ids.has(String(t.category_id))).reduce((s, t) => s + t.amount, 0);
+    if (spent <= 0) return null;
+    const [y, m] = month.split("-").map(Number);
+    const proj = spent / day * new Date(y, m, 0).getDate();
+    return {
+      proj,
+      over: proj - budget
+    };
+  }, [month, categories, monthTxs]);
   return React.createElement("div", {
     className: "pad"
   }, React.createElement("section", {
@@ -506,7 +549,7 @@ function Home({
       color: cssVar("--muted")
     }
   }, "Đã chi trong tháng"), React.createElement("div", {
-    className: "num",
+    className: "num hero-num",
     style: {
       fontSize: 38,
       fontWeight: 700,
@@ -520,7 +563,15 @@ function Home({
       marginTop: 4,
       color: diff > 0 ? cssVar("--red") : cssVar("--green")
     }
-  }, diff > 0 ? "▲" : "▼", " ", Math.abs(diff).toFixed(0), "% so với tháng trước (", short(prevTotal), ")")), (alerts.length > 0 || debt > 0) && React.createElement("section", {
+  }, diff > 0 ? "▲" : "▼", " ", Math.abs(diff).toFixed(0), "% so với tháng trước (", short(prevTotal), ")")), pace && React.createElement("section", {
+    style: {
+      marginBottom: 20
+    }
+  }, React.createElement(Callout, null, pace.over > 0 ? React.createElement(React.Fragment, null, "Theo nhịp chi hiện tại, cuối tháng các mục có ngân sách sẽ lên khoảng", " ", React.createElement("strong", {
+    className: "num"
+  }, short(pace.proj), ", vượt ", short(pace.over), ".")) : React.createElement(React.Fragment, null, "Theo nhịp chi hiện tại, cuối tháng các mục có ngân sách khoảng ", short(pace.proj), ",", " ", React.createElement("strong", {
+    className: "num"
+  }, "còn dư ", short(-pace.over), ".")))), (alerts.length > 0 || debt > 0) && React.createElement("section", {
     className: "grid2",
     style: {
       marginBottom: 24
@@ -652,7 +703,7 @@ function Home({
   }, React.createElement("div", {
     style: {
       height: Math.max(t.total / maxTrend * 62, t.total > 0 ? 3 : 1),
-      background: t.ym === month ? cssVar("--ink") : cssVar("--track"),
+      background: t.ym === month ? cssVar("--primary") : cssVar("--track"),
       borderRadius: "3px 3px 0 0"
     }
   }), React.createElement("div", {
@@ -1005,7 +1056,7 @@ function Entry({
   }, "₫")), React.createElement("div", {
     style: {
       height: 1,
-      background: cssVar("--ink"),
+      background: cssVar("--primary"),
       marginTop: 4
     }
   }), React.createElement("div", {
@@ -1079,9 +1130,9 @@ function Entry({
       style: {
         padding: "12px 0",
         borderRadius: 12,
-        background: on ? cssVar("--ink") : cssVar("--card"),
-        color: on ? cssVar("--onink") : cssVar("--ink"),
-        border: `1px solid ${on ? cssVar("--ink") : cssVar("--line")}`
+        background: on ? cssVar("--primary") : cssVar("--card"),
+        color: on ? cssVar("--onprimary") : cssVar("--ink"),
+        border: `1px solid ${on ? cssVar("--primary") : cssVar("--line")}`
       }
     }, React.createElement("div", {
       style: {
@@ -2743,8 +2794,8 @@ function Assistant({
       lineHeight: 1.6,
       whiteSpace: "pre-wrap",
       wordBreak: "break-word",
-      background: m.role === "user" ? cssVar("--ink") : cssVar("--card"),
-      color: m.role === "user" ? cssVar("--onink") : m.error ? cssVar("--red") : cssVar("--ink"),
+      background: m.role === "user" ? cssVar("--primary") : cssVar("--card"),
+      color: m.role === "user" ? cssVar("--onprimary") : m.error ? cssVar("--red") : cssVar("--ink"),
       border: m.role === "user" ? "none" : `1px solid ${cssVar("--line")}`
     }
   }, m.text))), busy && React.createElement("div", {
@@ -4568,7 +4619,7 @@ function LockScreen({
       height: 12,
       borderRadius: "50%",
       border: `1.5px solid ${cssVar(i < pin.length ? "--ink" : "--line")}`,
-      background: i < pin.length ? cssVar("--ink") : "transparent",
+      background: i < pin.length ? cssVar("--primary") : "transparent",
       opacity: i < 4 || pin.length > i ? 1 : 0.3
     }
   }))), React.createElement("div", {
@@ -4931,7 +4982,7 @@ function Reports({
   }, React.createElement("div", {
     style: {
       height: Math.max(t.total / maxTrend * 84, t.total > 0 ? 3 : 1),
-      background: t.month === month ? cssVar("--ink") : cssVar("--track"),
+      background: t.month === month ? cssVar("--primary") : cssVar("--track"),
       borderRadius: "2px 2px 0 0"
     }
   }), React.createElement("div", {
@@ -5247,6 +5298,9 @@ function Settings({
     }
   }, React.createElement(Chips, {
     options: [{
+      id: "navygold",
+      label: "Navy Gold"
+    }, {
       id: "light",
       label: "Sáng"
     }, {
@@ -5460,7 +5514,7 @@ function App() {
   const [month, setMonth] = useState(monthOf(todayISO()));
   const [entry, setEntry] = useState(null);
   const [toast, setToast] = useState("");
-  const [theme, setThemeState] = useState(localStorage.getItem("sochi:theme") || "auto");
+  const [theme, setThemeState] = useState(localStorage.getItem("sochi:theme") || "navygold");
   const [showLock, setShowLock] = useState(false);
   const {
     cfg: lockCfg,
@@ -5476,9 +5530,10 @@ function App() {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       const dark = theme === "dark" || theme === "auto" && mq.matches;
-      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      const mode = theme === "navygold" ? "navygold" : dark ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", mode);
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", dark ? "#10131A" : "#FAFAF7");
+      if (meta) meta.setAttribute("content", mode === "navygold" ? "#0B1B2E" : dark ? "#10131A" : "#FAFAF7");
     };
     apply();
     mq.addEventListener("change", apply);
@@ -5678,7 +5733,7 @@ function App() {
       bottom: 0,
       left: 0,
       right: 0,
-      background: cssVar("--card"),
+      background: cssVar("--nav"),
       borderTop: `1px solid ${cssVar("--line")}`,
       paddingBottom: "env(safe-area-inset-bottom)",
       zIndex: 40
@@ -5700,8 +5755,8 @@ function App() {
         fontSize: 11,
         fontWeight: on ? 600 : 400,
         whiteSpace: "nowrap",
-        color: on ? cssVar("--ink") : cssVar("--muted"),
-        borderTop: `2px solid ${on ? cssVar("--ink") : "transparent"}`,
+        color: on ? cssVar("--primary") : cssVar("--muted"),
+        borderTop: `2px solid ${on ? cssVar("--primary") : "transparent"}`,
         marginTop: -1
       }
     }, n.label);

@@ -108,7 +108,7 @@ function LockScreen({ onUnlock }) {
               <div key={i} style={{
                 width: 12, height: 12, borderRadius: "50%",
                 border: `1.5px solid ${cssVar(i < pin.length ? "--ink" : "--line")}`,
-                background: i < pin.length ? cssVar("--ink") : "transparent",
+                background: i < pin.length ? cssVar("--primary") : "transparent",
                 opacity: i < 4 || pin.length > i ? 1 : 0.3,
               }} />
             ))}

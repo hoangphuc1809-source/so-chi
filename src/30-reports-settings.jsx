@@ -36,7 +36,7 @@ function Reports({ month, setMonth, flash }) {
               style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
               <div style={{
                 height: Math.max((t.total / maxTrend) * 84, t.total > 0 ? 3 : 1),
-                background: t.month === month ? cssVar("--ink") : cssVar("--track"),
+                background: t.month === month ? cssVar("--primary") : cssVar("--track"),
                 borderRadius: "2px 2px 0 0",
               }} />
               <div className="num" style={{ fontSize: 9, marginTop: 5, color: t.month === month ? cssVar("--ink") : cssVar("--muted") }}>
@@ -234,7 +234,7 @@ function Settings({ data, reload, flash, theme, setTheme, onLogout, lockCfg, onO
         <SectionLabel>Giao diện</SectionLabel>
         <div style={{ marginTop: 12 }}>
           <Chips
-            options={[{ id: "light", label: "Sáng" }, { id: "dark", label: "Tối" }, { id: "auto", label: "Theo hệ thống" }]}
+            options={[{ id: "navygold", label: "Navy Gold" }, { id: "light", label: "Sáng" }, { id: "dark", label: "Tối" }, { id: "auto", label: "Theo hệ thống" }]}
             value={theme} onChange={setTheme} />
         </div>
       </section>
@@ -353,7 +353,7 @@ function App() {
   const [month, setMonth] = useState(monthOf(todayISO()));
   const [entry, setEntry] = useState(null); // {initial} | {prefill} | null
   const [toast, setToast] = useState("");
-  const [theme, setThemeState] = useState(localStorage.getItem("sochi:theme") || "auto");
+  const [theme, setThemeState] = useState(localStorage.getItem("sochi:theme") || "navygold");
   const [showLock, setShowLock] = useState(false);
   const { cfg: lockCfg, locked, unlock, reloadLock } = useScreenLock(phase === "ready");
 
@@ -367,9 +367,10 @@ function App() {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       const dark = theme === "dark" || (theme === "auto" && mq.matches);
-      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      const mode = theme === "navygold" ? "navygold" : dark ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", mode);
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", dark ? "#10131A" : "#FAFAF7");
+      if (meta) meta.setAttribute("content", mode === "navygold" ? "#0B1B2E" : dark ? "#10131A" : "#FAFAF7");
     };
     apply();
     mq.addEventListener("change", apply);
@@ -514,7 +515,7 @@ function App() {
       </div>
 
       <nav style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, background: cssVar("--card"),
+        position: "fixed", bottom: 0, left: 0, right: 0, background: cssVar("--nav"),
         borderTop: `1px solid ${cssVar("--line")}`, paddingBottom: "env(safe-area-inset-bottom)", zIndex: 40,
       }}>
         <div className="row" style={{ maxWidth: 620, margin: "0 auto" }}>
@@ -524,8 +525,8 @@ function App() {
               <button key={n.id} onClick={() => setTab(n.id)}
                 style={{
                   flex: 1, padding: "14px 2px", fontSize: 11, fontWeight: on ? 600 : 400, whiteSpace: "nowrap",
-                  color: on ? cssVar("--ink") : cssVar("--muted"),
-                  borderTop: `2px solid ${on ? cssVar("--ink") : "transparent"}`, marginTop: -1,
+                  color: on ? cssVar("--primary") : cssVar("--muted"),
+                  borderTop: `2px solid ${on ? cssVar("--primary") : "transparent"}`, marginTop: -1,
                 }}>
                 {n.label}
               </button>
