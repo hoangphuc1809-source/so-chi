@@ -97,6 +97,9 @@ const INCOME_SOURCES = [{
   id: "bonus",
   label: "Thưởng"
 }, {
+  id: "reimburse",
+  label: "Claim chi phí công ty"
+}, {
   id: "business",
   label: "Kinh doanh / việc phụ"
 }, {

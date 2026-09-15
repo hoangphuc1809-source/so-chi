@@ -64,7 +64,7 @@ if (!hasCol("card_payments", "account_id")) db.exec("ALTER TABLE card_payments A
 db.exec("CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id)");
 
 export const ACCOUNT_KINDS = ["cash", "bank", "ewallet", "saving"];
-export const INCOME_SOURCES = ["salary", "bonus", "business", "interest", "dividend", "gift", "other"];
+export const INCOME_SOURCES = ["salary", "bonus", "reimburse", "business", "interest", "dividend", "gift", "other"];
 const KIND_OF_METHOD = { cash: "cash", bank: "bank", ewallet: "ewallet" };
 
 const sum = (sql, ...p) => q.get(sql, ...p).s;

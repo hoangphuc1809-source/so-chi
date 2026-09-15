@@ -56,6 +56,7 @@ const ACCOUNT_KINDS = [
 const INCOME_SOURCES = [
   { id: "salary", label: "Lương" },
   { id: "bonus", label: "Thưởng" },
+  { id: "reimburse", label: "Claim chi phí công ty" },
   { id: "business", label: "Kinh doanh / việc phụ" },
   { id: "interest", label: "Lãi tiết kiệm" },
   { id: "dividend", label: "Cổ tức / đầu tư" },
