@@ -337,7 +337,7 @@ function Settings({ data, reload, flash, theme, setTheme, onLogout, lockCfg, onO
 const TABS = [
   { id: "home", label: "Tổng quan" },
   { id: "bills", label: "Hóa đơn" },
-  { id: "cards", label: "Thẻ" },
+  { id: "cards", label: "Tài khoản" },
   { id: "invest", label: "Đầu tư" },
   { id: "reports", label: "Báo cáo" },
   { id: "assistant", label: "Trợ lý" },
@@ -349,6 +349,7 @@ function App() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [data, setData] = useState(null);
   const [txs, setTxs] = useState([]);
+  const [incomes, setIncomes] = useState([]);
   const [tab, setTab] = useState("home");
   const [month, setMonth] = useState(monthOf(todayISO()));
   const [entry, setEntry] = useState(null); // {initial} | {prefill} | null
@@ -384,12 +385,14 @@ function App() {
 
   /* --- nạp dữ liệu --- */
   const loadAll = useCallback(async () => {
-    const [boot, tx] = await Promise.all([
+    const [boot, tx, inc] = await Promise.all([
       api("/bootstrap"),
       api("/transactions?limit=2000"),
+      api("/incomes?limit=2000"),
     ]);
     setData(boot);
     setTxs(tx.transactions);
+    setIncomes(inc.incomes);
     setPhase("ready");
   }, []);
 
@@ -436,6 +439,13 @@ function App() {
     api("/bootstrap").then(setData).catch(() => {});
   };
 
+  const onMoneySaved = (msg, date) => {
+    setEntry(null);
+    if (date) setMonth(monthOf(date));
+    flash(msg);
+    reload();
+  };
+
   const onDeleted = (id) => {
     setTxs((prev) => prev.filter((t) => t.id !== id));
     setEntry(null);
@@ -458,7 +468,7 @@ function App() {
     return <Login needsSetup={needsSetup} onDone={() => { setPhase("loading"); loadAll().catch(() => setPhase("login")); }} />;
   }
 
-  const showMonthNav = tab === "home" || tab === "reports";
+  const showMonthNav = tab === "home" || tab === "reports" || tab === "cards";
 
   // Man khoa che truoc toan bo phan con lai. Dat o day chu khong long ben
   // trong: neu ve chong len noi dung thi chi can mot loi CSS la so du lo ra.
@@ -485,8 +495,8 @@ function App() {
             )}
           </div>
           <div className="row" style={{ gap: 10 }}>
-            {tab === "home" && (
-              <Button onClick={() => setEntry({})} style={{ padding: "9px 18px", fontSize: 14 }}>+ Thêm</Button>
+            {(tab === "home" || tab === "cards") && (
+              <Button onClick={() => setEntry({ kind: tab === "cards" ? "income" : "expense" })} style={{ padding: "9px 18px", fontSize: 14 }}>+ Thêm</Button>
             )}
             <button onClick={() => setTab(tab === "settings" ? "home" : "settings")}
               aria-label="Cài đặt" title="Cài đặt"
@@ -498,12 +508,15 @@ function App() {
         </header>
 
         {tab === "home" && (
-          <Home data={data} month={month} setMonth={setMonth} txs={txs}
+          <Home data={data} month={month} setMonth={setMonth} txs={txs} incomes={incomes}
             onEdit={(t) => setEntry({ initial: t })} onAdd={() => setEntry({})}
             onPayBill={payBillQuick} goTab={setTab} />
         )}
         {tab === "bills" && <Bills data={data} reload={reload} flash={flash} />}
-        {tab === "cards" && <Cards data={data} reload={reload} flash={flash} />}
+        {tab === "cards" && (
+          <Accounts data={data} month={month} incomes={incomes} reload={reload} flash={flash}
+            onAdd={(kind) => setEntry({ kind })} onEditIncome={(i) => setEntry({ kind: "income", initial: i })} />
+        )}
         {tab === "invest" && <Invest flash={flash} />}
         {tab === "reports" && <Reports month={month} setMonth={setMonth} flash={flash} />}
         {tab === "assistant" && <Assistant data={data} month={month} flash={flash} />}
@@ -535,8 +548,17 @@ function App() {
         </div>
       </nav>
 
-      {entry && (
+      {entry && entry.kind === "income" && (
+        <IncomeEntry data={data} initial={entry.initial} flash={flash}
+          onSwitch={(kind) => setEntry({ kind })} onClose={() => setEntry(null)} onDone={onMoneySaved} />
+      )}
+      {entry && entry.kind === "transfer" && (
+        <TransferEntry data={data} flash={flash}
+          onSwitch={(kind) => setEntry({ kind })} onClose={() => setEntry(null)} onDone={onMoneySaved} />
+      )}
+      {entry && entry.kind !== "income" && entry.kind !== "transfer" && (
         <Entry data={data} initial={entry.initial} prefill={entry.prefill} flash={flash}
+          onSwitch={(kind) => setEntry({ kind })}
           onSaved={onSaved} onDeleted={onDeleted} onClose={() => setEntry(null)} />
       )}
 

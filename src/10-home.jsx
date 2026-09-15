@@ -1,6 +1,6 @@
 /* ============================ Tổng quan ============================ */
 
-function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
+function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBill, goTab }) {
   const { categories, cards, bills } = data;
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
@@ -51,6 +51,12 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
     return Object.entries(g);
   }, [monthTxs]);
 
+  const monthIncome = useMemo(
+    () => incomes.filter((i) => monthOf(i.date) === month).reduce((s, i) => s + i.amount, 0),
+    [incomes, month]
+  );
+  const tracksMoney = incomes.length > 0 || (data.accounts || []).some((a) => !a.archived);
+
   // Du bao cuoi thang: chi tinh cac danh muc co dat ngan sach, chi cho thang hien tai.
   const pace = useMemo(() => {
     const today = todayISO();
@@ -81,6 +87,30 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
           </div>
         )}
       </section>
+
+      {tracksMoney && (
+        <section className="grid2" style={{ marginBottom: 20 }}>
+          <button className="box" onClick={() => goTab("cards")} style={{ padding: 14, textAlign: "left" }}>
+            <div style={{ fontSize: 11, color: cssVar("--muted") }}>Thu nhập tháng</div>
+            <div className="num" style={{ fontSize: 20, fontWeight: 600, marginTop: 3, color: cssVar("--green") }}>
+              {monthIncome > 0 ? "+" + short(monthIncome) : "0"}
+            </div>
+            <div className="num truncate" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 2 }}>
+              {monthIncome > 0 ? "xem chi tiết" : "chưa ghi khoản thu"}
+            </div>
+          </button>
+          <button className="box" onClick={() => goTab("cards")} style={{ padding: 14, textAlign: "left" }}>
+            <div style={{ fontSize: 11, color: cssVar("--muted") }}>Còn lại sau chi</div>
+            <div className="num" style={{ fontSize: 20, fontWeight: 600, marginTop: 3,
+              color: monthIncome - total < 0 ? cssVar("--red") : cssVar("--ink") }}>
+              {monthIncome - total < 0 ? "−" : ""}{short(Math.abs(monthIncome - total))}
+            </div>
+            <div className="num truncate" style={{ fontSize: 11, color: cssVar("--muted"), marginTop: 2 }}>
+              {monthIncome > 0 ? `để dành ${Math.round(((monthIncome - total) / monthIncome) * 100)}% thu nhập` : "thu trừ chi"}
+            </div>
+          </button>
+        </section>
+      )}
 
       {pace && (
         <section style={{ marginBottom: 20 }}>
@@ -252,7 +282,7 @@ function Home({ data, month, setMonth, txs, onEdit, onAdd, onPayBill, goTab }) {
 
 /* ============================ Nhập khoản chi ============================ */
 
-function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
+function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, onSwitch, flash }) {
   const cats = data.categories;
   const src = initial || prefill || {};
   const [amount, setAmount] = useState(src.amount ? String(src.amount) : "");
@@ -263,6 +293,9 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
   const [cardId, setCardId] = useState(src.card_id || (data.cards[0] || {}).id || "");
   const [note, setNote] = useState(src.note || "");
   const [date, setDate] = useState(src.date || todayISO());
+  const [accountId, setAccountId] = useState(
+    initial ? initial.account_id || "" : defaultAccount(data.accounts, src.method || "cash")
+  );
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -302,6 +335,7 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
       const body = {
         amount: amountNum, category_id: categoryId, sub: cat && cat.subs.length ? sub : "",
         type, method, card_id: method === "card" ? cardId : null,
+        account_id: method === "card" ? null : accountId || null,
         note: note.trim(), date, source: receipt ? "ocr" : initial ? initial.source : "manual",
         receipt,
       };
@@ -328,6 +362,7 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
 
   return (
     <Sheet title={initial ? "Sửa khoản chi" : "Thêm khoản chi"} onClose={onClose}>
+      {!initial && onSwitch && <KindSwitch value="expense" onChange={onSwitch} />}
       {!initial && data.ocr_enabled && (
         <div style={{ marginBottom: 22 }}>
           <input ref={fileRef} type="file" accept="image/*" capture="environment"
@@ -408,7 +443,8 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
       </Field>
 
       <Field label="Thanh toán">
-        <Chips options={METHODS} value={method} onChange={setMethod} />
+        <Chips options={METHODS} value={method}
+          onChange={(m) => { setMethod(m); setAccountId(defaultAccount(data.accounts, m)); }} />
       </Field>
 
       {method === "card" && data.cards.length > 0 && (
@@ -421,6 +457,13 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, flash }) {
         <div style={{ fontSize: 12, color: cssVar("--muted"), marginBottom: 18 }}>
           Chưa có thẻ nào. Thêm thẻ ở tab Thẻ để theo dõi dư nợ.
         </div>
+      )}
+
+      {method !== "card" && accountsFor(data.accounts, method).length > 0 && (
+        <Field label="Trừ từ tài khoản">
+          <Chips options={[...accountsFor(data.accounts, method).map((a) => ({ id: a.id, label: a.name })), { id: "", label: "Không trừ" }]}
+            value={accountId} onChange={setAccountId} />
+        </Field>
       )}
 
       <Field label="Ghi chú">

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { q, uid, now, seedCategories } from "./db.js";
 import { createUser, login, verifyToken, userCount, verifyPassword, setPin, hasPin, checkPin, unlockByPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
+import { accountsWithBalance, resolveTxAccount, registerMoneyRoutes } from "./money.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices, fetchDailyBars, findUnusualVolume } from "./prices.js";
 import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
@@ -222,6 +223,7 @@ route("GET", "/api/bootstrap", (ctx) => {
     categories: q.all("SELECT * FROM categories WHERE user_id=? AND archived=0 ORDER BY sort", u)
       .map((c) => ({ ...c, subs: JSON.parse(c.subs || "[]") })),
     cards: cardsWithBalance(u),
+    accounts: accountsWithBalance(u),
     bills: billsWithStatus(u),
     settings: Object.fromEntries(
       q.all("SELECT key,value FROM settings WHERE user_id=?", u).map((s) => [s.key, s.value])
@@ -256,6 +258,7 @@ function upsertTx(userId, body, existingId) {
   const method = ["cash", "card", "bank", "ewallet"].includes(body.method) ? body.method : "cash";
   let cardId = method === "card" ? str(body.card_id, 40) || null : null;
   if (cardId && !q.get("SELECT id FROM cards WHERE id=? AND user_id=?", cardId, userId)) cardId = null;
+  const accountId = resolveTxAccount(userId, method, body.account_id, existingId);
 
   const row = [
     amount, cat.id, str(body.sub, 60),
@@ -268,8 +271,8 @@ function upsertTx(userId, body, existingId) {
   if (existingId) {
     const r = q.run(
       `UPDATE transactions SET amount=?,category_id=?,sub=?,type=?,method=?,card_id=?,note=?,date=?,
-       source=?,receipt=?,updated_at=? WHERE id=? AND user_id=?`,
-      ...row, now(), existingId, userId
+       source=?,receipt=?,account_id=?,updated_at=? WHERE id=? AND user_id=?`,
+      ...row, accountId, now(), existingId, userId
     );
     if (!r.changes) throw httpError(404, "Không tìm thấy khoản chi");
     return q.get("SELECT * FROM transactions WHERE id=?", existingId);
@@ -277,9 +280,9 @@ function upsertTx(userId, body, existingId) {
 
   const id = uid();
   q.run(
-    `INSERT INTO transactions (id,user_id,amount,category_id,sub,type,method,card_id,note,date,source,receipt,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    id, userId, ...row, now(), now()
+    `INSERT INTO transactions (id,user_id,amount,category_id,sub,type,method,card_id,note,date,source,receipt,account_id,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    id, userId, ...row, accountId, now(), now()
   );
   return q.get("SELECT * FROM transactions WHERE id=?", id);
 }
@@ -375,8 +378,10 @@ route("POST", "/api/cards/:id/pay", (ctx) => {
   const amount = int(ctx.body.amount);
   if (amount <= 0) throw httpError(400, "Số tiền thanh toán phải lớn hơn 0");
   q.run(
-    "INSERT INTO card_payments (id,card_id,user_id,amount,paid_date,created_at) VALUES (?,?,?,?,?,?)",
-    uid(), card.id, ctx.userId, amount, isDate(ctx.body.paid_date) ? ctx.body.paid_date : todayISO(), now()
+    "INSERT INTO card_payments (id,card_id,user_id,amount,paid_date,account_id,created_at) VALUES (?,?,?,?,?,?,?)",
+    uid(), card.id, ctx.userId, amount, isDate(ctx.body.paid_date) ? ctx.body.paid_date : todayISO(),
+    ctx.body.account_id ? q.get("SELECT id FROM accounts WHERE id=? AND user_id=?", String(ctx.body.account_id), ctx.userId)?.id || null : null,
+    now()
   );
   return { cards: cardsWithBalance(ctx.userId) };
 });
@@ -389,6 +394,8 @@ route("GET", "/api/cards/:id/payments", (ctx) => ({
 }));
 
 /* ---- hóa đơn ---- */
+
+registerMoneyRoutes({ route, httpError, int, str, isDate, todayISO });
 
 route("GET", "/api/bills", (ctx) => ({ bills: billsWithStatus(ctx.userId) }));
 
@@ -877,6 +884,9 @@ route("POST", "/api/reset", (ctx) => {
     wipe("bills", "hoa_don");
     wipe("card_payments", "lan_tra_the");
     wipe("cards", "the");
+    wipe("incomes", "khoan_thu");
+    wipe("transfers", "chuyen_tien");
+    wipe("accounts", "tai_khoan");
   }
   if (scope === "all" || scope === "stock") {
     wipe("stock_tx", "giao_dich_chung_khoan");
@@ -919,6 +929,9 @@ route("GET", "/api/export.json", (ctx) => ({
   bills: q.all("SELECT * FROM bills WHERE user_id=?", ctx.userId),
   bill_payments: q.all("SELECT * FROM bill_payments WHERE user_id=?", ctx.userId),
   card_payments: q.all("SELECT * FROM card_payments WHERE user_id=?", ctx.userId),
+  accounts: q.all("SELECT * FROM accounts WHERE user_id=?", ctx.userId),
+  incomes: q.all("SELECT * FROM incomes WHERE user_id=? ORDER BY date DESC", ctx.userId),
+  transfers: q.all("SELECT * FROM transfers WHERE user_id=? ORDER BY date DESC", ctx.userId),
 }));
 
 /* ---- nhập dữ liệu từ bản GĐ1 (localStorage) ---- */

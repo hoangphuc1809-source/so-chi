@@ -291,7 +291,7 @@ function Cards({ data, reload, flash }) {
           onSaved={() => { setAdding(false); setEditing(null); reload(); }} />
       )}
       {paying && (
-        <PayCard card={paying} flash={flash}
+        <PayCard card={paying} accounts={data.accounts} flash={flash}
           onClose={() => setPaying(null)}
           onSaved={() => { setPaying(null); reload(); }} />
       )}
@@ -400,7 +400,9 @@ function CardForm({ initial, onClose, onSaved, flash }) {
   );
 }
 
-function PayCard({ card, onClose, onSaved, flash }) {
+function PayCard({ card, accounts = [], onClose, onSaved, flash }) {
+  const payFrom = accountsFor(accounts, "bank");
+  const [accountId, setAccountId] = useState(defaultAccount(accounts, "bank"));
   const [amount, setAmount] = useState(String(Math.max(0, card.balance)));
   const [paidDate, setPaidDate] = useState(todayISO());
   const [busy, setBusy] = useState(false);
@@ -414,7 +416,7 @@ function PayCard({ card, onClose, onSaved, flash }) {
   const submit = async () => {
     setBusy(true);
     try {
-      await api(`/cards/${card.id}/pay`, { method: "POST", body: { amount: amountNum, paid_date: paidDate } });
+      await api(`/cards/${card.id}/pay`, { method: "POST", body: { amount: amountNum, paid_date: paidDate, account_id: accountId || null } });
       flash(`Đã trả ${money(amountNum)} cho ${card.bank}`);
       onSaved();
     } catch (e) {
@@ -442,6 +444,13 @@ function PayCard({ card, onClose, onSaved, flash }) {
           </button>
         </div>
       </Field>
+
+      {payFrom.length > 0 && (
+        <Field label="Trả từ tài khoản">
+          <Chips options={[...payFrom.map((a) => ({ id: a.id, label: a.name })), { id: "", label: "Không trừ" }]}
+            value={accountId} onChange={setAccountId} />
+        </Field>
+      )}
 
       <Field label="Ngày trả">
         <input className="field num" type="date" value={paidDate} style={{ width: "auto" }}

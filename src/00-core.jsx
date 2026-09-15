@@ -47,6 +47,23 @@ const RECURRENCE = [
   { id: "yearly", label: "Hàng năm" },
   { id: "once", label: "Một lần" },
 ];
+const ACCOUNT_KINDS = [
+  { id: "cash", label: "Tiền mặt" },
+  { id: "bank", label: "Ngân hàng / thẻ ghi nợ" },
+  { id: "ewallet", label: "Ví điện tử" },
+  { id: "saving", label: "Tiết kiệm" },
+];
+const INCOME_SOURCES = [
+  { id: "salary", label: "Lương" },
+  { id: "bonus", label: "Thưởng" },
+  { id: "business", label: "Kinh doanh / việc phụ" },
+  { id: "interest", label: "Lãi tiết kiệm" },
+  { id: "dividend", label: "Cổ tức / đầu tư" },
+  { id: "gift", label: "Được cho / tặng" },
+  { id: "other", label: "Khác" },
+];
+const kindLabel = (id) => (ACCOUNT_KINDS.find((k) => k.id === id) || {}).label || id;
+const sourceLabel = (id) => (INCOME_SOURCES.find((s) => s.id === id) || {}).label || id;
 const typeLabel = (id) => (TYPES.find((t) => t.id === id) || {}).label || id;
 const methodLabel = (id) => (METHODS.find((m) => m.id === id) || {}).label || id;
 const cssVar = (name) => `var(${name})`;
@@ -201,6 +218,26 @@ function Sheet({ title, onClose, children, footer }) {
         <div className="pad" style={{ paddingTop: 20 }}>{children}</div>
         {footer && <div className="pad" style={{ paddingTop: 8 }}>{footer}</div>}
       </div>
+    </div>
+  );
+}
+
+/** Chuyển giữa ghi khoản chi, thu nhập và chuyển tiền trong cùng một màn nhập. */
+function KindSwitch({ value, onChange }) {
+  const opts = [{ id: "expense", label: "Khoản chi" }, { id: "income", label: "Thu nhập" }, { id: "transfer", label: "Chuyển tiền" }];
+  return (
+    <div className="row" role="tablist" style={{ gap: 4, padding: 4, marginBottom: 22, borderRadius: 99, background: cssVar("--track") }}>
+      {opts.map((o) => {
+        const on = o.id === value;
+        return (
+          <button key={o.id} role="tab" aria-selected={on} onClick={() => !on && onChange && onChange(o.id)}
+            style={{ flex: 1, padding: "9px 0", borderRadius: 99, fontSize: 13, fontWeight: on ? 600 : 400,
+              background: on ? cssVar("--card") : "transparent", color: on ? cssVar("--ink") : cssVar("--muted"),
+              border: `1px solid ${on ? cssVar("--line") : "transparent"}` }}>
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
