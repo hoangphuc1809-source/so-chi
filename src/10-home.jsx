@@ -1,6 +1,6 @@
 /* ============================ Tổng quan ============================ */
 
-function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBill, goTab }) {
+function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBill, goTab, onOpenClaims }) {
   const { categories, cards, bills } = data;
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
@@ -110,6 +110,21 @@ function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBi
             </div>
           </button>
         </section>
+      )}
+
+      {data.claims && data.claims.count > 0 && (
+        <button className="box between" onClick={onOpenClaims}
+          style={{ width: "100%", padding: 14, marginBottom: 20, textAlign: "left", gap: 12 }}>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 11, color: cssVar("--muted") }}>Chờ claim công ty</span>
+            <span className="num" style={{ display: "block", fontSize: 12, color: cssVar("--muted"), marginTop: 2 }}>
+              {data.claims.count} khoản tiếp khách, công tác chưa được hoàn
+            </span>
+          </span>
+          <span className="num" style={{ fontSize: 20, fontWeight: 600, color: cssVar("--amber"), flexShrink: 0 }}>
+            {short(data.claims.total)}
+          </span>
+        </button>
       )}
 
       {pace && (
@@ -293,6 +308,7 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, onSwitch, 
   const [cardId, setCardId] = useState(src.card_id || (data.cards[0] || {}).id || "");
   const [note, setNote] = useState(src.note || "");
   const [date, setDate] = useState(src.date || todayISO());
+  const [claimStatus, setClaimStatus] = useState(initial ? initial.claim_status || "none" : "pending");
   const [accountId, setAccountId] = useState(
     initial ? initial.account_id || "" : defaultAccount(data.accounts, src.method || "cash")
   );
@@ -336,6 +352,7 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, onSwitch, 
         amount: amountNum, category_id: categoryId, sub: cat && cat.subs.length ? sub : "",
         type, method, card_id: method === "card" ? cardId : null,
         account_id: method === "card" ? null : accountId || null,
+        claim_status: type === "personal" ? undefined : claimStatus,
         note: note.trim(), date, source: receipt ? "ocr" : initial ? initial.source : "manual",
         receipt,
       };
@@ -441,6 +458,12 @@ function Entry({ data, initial, prefill, onSaved, onDeleted, onClose, onSwitch, 
       <Field label="Loại chi">
         <Chips options={TYPES} value={type} onChange={setType} accent />
       </Field>
+
+      {type !== "personal" && (
+        <Field label="Claim công ty" hint={claimStatus === "pending" ? "Khoản này sẽ nằm trong mục Chờ claim cho tới khi công ty hoàn." : null}>
+          <Chips options={CLAIM_STATUS} value={claimStatus} onChange={setClaimStatus} />
+        </Field>
+      )}
 
       <Field label="Thanh toán">
         <Chips options={METHODS} value={method}

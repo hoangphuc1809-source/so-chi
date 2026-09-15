@@ -62,6 +62,50 @@ const hasCol = (table, col) => q.all(`PRAGMA table_info(${table})`).some((c) => 
 if (!hasCol("transactions", "account_id")) db.exec("ALTER TABLE transactions ADD COLUMN account_id TEXT");
 if (!hasCol("card_payments", "account_id")) db.exec("ALTER TABLE card_payments ADD COLUMN account_id TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id)");
+// Claim cong ty: chi ap dung cho khoan chi Tiep khach (company) va Cong tac (business).
+// claim_status: NULL = khong theo doi, pending = cho claim, claimed = da hoan, rejected = khong duoc duyet.
+if (!hasCol("transactions", "claim_status")) db.exec("ALTER TABLE transactions ADD COLUMN claim_status TEXT");
+if (!hasCol("transactions", "claim_income_id")) db.exec("ALTER TABLE transactions ADD COLUMN claim_income_id TEXT");
+db.exec("CREATE INDEX IF NOT EXISTS idx_tx_claim ON transactions(user_id, claim_status)");
+
+const CLAIMABLE = ["company", "business"];
+const CLAIM_STATES = ["pending", "claimed", "rejected"];
+
+export function claimSummary(userId) {
+  const r = q.get("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS s FROM transactions WHERE user_id=? AND claim_status='pending'", userId);
+  return { count: r.n, total: r.s };
+}
+
+/**
+ * Dat trang thai claim sau khi ghi khoan chi.
+ * Khoan moi loai Tiep khach/Cong tac mac dinh la cho claim. Sua ma khong gui
+ * claim_status thi giu nguyen, de khoan cu ghi truoc tinh nang nay khong bi
+ * tu dong day vao danh sach cho.
+ */
+export function applyClaim(userId, txId, type, given, isNew) {
+  const cur = q.get("SELECT claim_status, claim_income_id FROM transactions WHERE id=? AND user_id=?", txId, userId);
+  let status = cur.claim_status;
+  if (!CLAIMABLE.includes(type)) status = null;
+  else if (given === "none" || given === null || given === "") status = null;
+  else if (CLAIM_STATES.includes(given)) status = given;
+  else if (isNew) status = "pending";
+  const incomeId = status === "claimed" ? cur.claim_income_id : null;
+  q.run("UPDATE transactions SET claim_status=?, claim_income_id=? WHERE id=? AND user_id=?", status, incomeId, txId, userId);
+  return q.get("SELECT * FROM transactions WHERE id=?", txId);
+}
+
+/** Gan cac khoan chi vao mot khoan thu claim. Khoan da gan truoc do ma khong con trong danh sach thi tro lai cho claim. */
+function linkClaims(userId, incomeId, ids) {
+  q.run("UPDATE transactions SET claim_status='pending', claim_income_id=NULL WHERE user_id=? AND claim_income_id=?", userId, incomeId);
+  if (!Array.isArray(ids)) return;
+  for (const id of ids.slice(0, 500)) {
+    q.run(
+      `UPDATE transactions SET claim_status='claimed', claim_income_id=?
+       WHERE id=? AND user_id=? AND type IN ('company','business')`,
+      incomeId, String(id), userId
+    );
+  }
+}
 
 export const ACCOUNT_KINDS = ["cash", "bank", "ewallet", "saving"];
 export const INCOME_SOURCES = ["salary", "bonus", "reimburse", "business", "interest", "dividend", "gift", "other"];
@@ -219,7 +263,8 @@ export function registerMoneyRoutes({ route, httpError, int, str, isDate, todayI
       "INSERT INTO incomes (id,user_id,amount,source,account_id,note,date,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
       id, ctx.userId, ...incomeRow(ctx.userId, ctx.body), now(), now()
     );
-    return { income: q.get("SELECT * FROM incomes WHERE id=?", id) };
+    if (ctx.body.source === "reimburse" && Array.isArray(ctx.body.claim_tx_ids)) linkClaims(ctx.userId, id, ctx.body.claim_tx_ids);
+    return { income: q.get("SELECT * FROM incomes WHERE id=?", id), claims: claimSummary(ctx.userId) };
   });
 
   route("PUT", "/api/incomes/:id", (ctx) => {
@@ -228,12 +273,15 @@ export function registerMoneyRoutes({ route, httpError, int, str, isDate, todayI
       ...incomeRow(ctx.userId, ctx.body), now(), ctx.params.id, ctx.userId
     );
     if (!r.changes) throw httpError(404, "Không tìm thấy khoản thu");
-    return { income: q.get("SELECT * FROM incomes WHERE id=?", ctx.params.id) };
+    if (ctx.body.source !== "reimburse") linkClaims(ctx.userId, ctx.params.id, []);
+    else if (Array.isArray(ctx.body.claim_tx_ids)) linkClaims(ctx.userId, ctx.params.id, ctx.body.claim_tx_ids);
+    return { income: q.get("SELECT * FROM incomes WHERE id=?", ctx.params.id), claims: claimSummary(ctx.userId) };
   });
 
   route("DELETE", "/api/incomes/:id", (ctx) => {
     const r = q.run("DELETE FROM incomes WHERE id=? AND user_id=?", ctx.params.id, ctx.userId);
     if (!r.changes) throw httpError(404, "Không tìm thấy khoản thu");
+    linkClaims(ctx.userId, ctx.params.id, []);
     return { ok: true };
   });
 
@@ -265,6 +313,41 @@ export function registerMoneyRoutes({ route, httpError, int, str, isDate, todayI
     const r = q.run("DELETE FROM transfers WHERE id=? AND user_id=?", ctx.params.id, ctx.userId);
     if (!r.changes) throw httpError(404, "Không tìm thấy lần chuyển tiền");
     return { ok: true, accounts: accountsWithBalance(ctx.userId) };
+  });
+
+  /* ---- cho claim cong ty ---- */
+  const claimRows = (where, tail, ...p) => q.all(
+    `SELECT t.*, c.name AS category_name FROM transactions t
+     LEFT JOIN categories c ON c.id=t.category_id
+     WHERE ${where} ORDER BY t.date DESC, t.created_at DESC ${tail}`, ...p
+  );
+
+  route("GET", "/api/claims", (ctx) => {
+    const u = ctx.userId;
+    const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    const pending = claimRows("t.user_id=? AND t.claim_status='pending'", "", u);
+    return {
+      pending,
+      pending_total: pending.reduce((s, t) => s + t.amount, 0),
+      untracked: claimRows("t.user_id=? AND t.type IN ('company','business') AND t.claim_status IS NULL AND t.date>=?", "LIMIT 100", u, since),
+      done: claimRows("t.user_id=? AND t.claim_status IN ('claimed','rejected')", "LIMIT 15", u),
+      linked: ctx.query.income ? claimRows("t.user_id=? AND t.claim_income_id=?", "", u, String(ctx.query.income)) : [],
+    };
+  });
+
+  route("POST", "/api/claims/mark", (ctx) => {
+    const ids = Array.isArray(ctx.body.ids) ? ctx.body.ids.slice(0, 500).map(String) : [];
+    const st = ctx.body.status;
+    need(ids.length > 0, "Chưa chọn khoản chi nào");
+    need(["pending", "claimed", "rejected", "none"].includes(st), "Trạng thái claim không hợp lệ");
+    let changed = 0;
+    for (const id of ids) {
+      changed += q.run(
+        "UPDATE transactions SET claim_status=?, claim_income_id=NULL WHERE id=? AND user_id=? AND type IN ('company','business')",
+        st === "none" ? null : st, id, ctx.userId
+      ).changes;
+    }
+    return { ok: true, changed, claims: claimSummary(ctx.userId) };
   });
 
   /* ---- dong tien theo thang: thu, chi, con lai ---- */

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { q, uid, now, seedCategories } from "./db.js";
 import { createUser, login, verifyToken, userCount, verifyPassword, setPin, hasPin, checkPin, unlockByPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
-import { accountsWithBalance, resolveTxAccount, registerMoneyRoutes } from "./money.js";
+import { accountsWithBalance, resolveTxAccount, registerMoneyRoutes, applyClaim, claimSummary } from "./money.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices, fetchDailyBars, findUnusualVolume } from "./prices.js";
 import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
@@ -224,6 +224,7 @@ route("GET", "/api/bootstrap", (ctx) => {
       .map((c) => ({ ...c, subs: JSON.parse(c.subs || "[]") })),
     cards: cardsWithBalance(u),
     accounts: accountsWithBalance(u),
+    claims: claimSummary(u),
     bills: billsWithStatus(u),
     settings: Object.fromEntries(
       q.all("SELECT key,value FROM settings WHERE user_id=?", u).map((s) => [s.key, s.value])
@@ -275,7 +276,7 @@ function upsertTx(userId, body, existingId) {
       ...row, accountId, now(), existingId, userId
     );
     if (!r.changes) throw httpError(404, "Không tìm thấy khoản chi");
-    return q.get("SELECT * FROM transactions WHERE id=?", existingId);
+    return applyClaim(userId, existingId, row[3], body.claim_status, false);
   }
 
   const id = uid();
@@ -284,7 +285,7 @@ function upsertTx(userId, body, existingId) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, userId, ...row, accountId, now(), now()
   );
-  return q.get("SELECT * FROM transactions WHERE id=?", id);
+  return applyClaim(userId, id, row[3], body.claim_status, true);
 }
 
 route("POST", "/api/transactions", (ctx) => ({ transaction: upsertTx(ctx.userId, ctx.body) }));

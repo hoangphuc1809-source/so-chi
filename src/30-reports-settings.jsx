@@ -350,6 +350,7 @@ function App() {
   const [data, setData] = useState(null);
   const [txs, setTxs] = useState([]);
   const [incomes, setIncomes] = useState([]);
+  const [showClaims, setShowClaims] = useState(false);
   const [tab, setTab] = useState("home");
   const [month, setMonth] = useState(monthOf(todayISO()));
   const [entry, setEntry] = useState(null); // {initial} | {prefill} | null
@@ -508,13 +509,14 @@ function App() {
         </header>
 
         {tab === "home" && (
-          <Home data={data} month={month} setMonth={setMonth} txs={txs} incomes={incomes}
+          <Home data={data} month={month} setMonth={setMonth} txs={txs} incomes={incomes} onOpenClaims={() => setShowClaims(true)}
             onEdit={(t) => setEntry({ initial: t })} onAdd={() => setEntry({})}
             onPayBill={payBillQuick} goTab={setTab} />
         )}
         {tab === "bills" && <Bills data={data} reload={reload} flash={flash} />}
         {tab === "cards" && (
           <Accounts data={data} month={month} incomes={incomes} reload={reload} flash={flash}
+            onOpenClaims={() => setShowClaims(true)}
             onAdd={(kind) => setEntry({ kind })} onEditIncome={(i) => setEntry({ kind: "income", initial: i })} />
         )}
         {tab === "invest" && <Invest flash={flash} />}
@@ -549,7 +551,7 @@ function App() {
       </nav>
 
       {entry && entry.kind === "income" && (
-        <IncomeEntry data={data} initial={entry.initial} flash={flash}
+        <IncomeEntry data={data} initial={entry.initial} prefill={entry.prefill} flash={flash}
           onSwitch={(kind) => setEntry({ kind })} onClose={() => setEntry(null)} onDone={onMoneySaved} />
       )}
       {entry && entry.kind === "transfer" && (
@@ -560,6 +562,14 @@ function App() {
         <Entry data={data} initial={entry.initial} prefill={entry.prefill} flash={flash}
           onSwitch={(kind) => setEntry({ kind })}
           onSaved={onSaved} onDeleted={onDeleted} onClose={() => setEntry(null)} />
+      )}
+
+      {showClaims && (
+        <ClaimsSheet flash={flash} onClose={() => setShowClaims(false)} onChanged={reload}
+          onReceive={(ids, total) => {
+            setShowClaims(false);
+            setEntry({ kind: "income", prefill: { source: "reimburse", amount: total, claim_tx_ids: ids, note: "Claim chi phí công ty" } });
+          }} />
       )}
 
       {showLock && (

@@ -557,7 +557,8 @@ function Home({
   onEdit,
   onAdd,
   onPayBill,
-  goTab
+  goTab,
+  onOpenClaims
 }) {
   const {
     categories,
@@ -709,7 +710,43 @@ function Home({
       color: cssVar("--muted"),
       marginTop: 2
     }
-  }, monthIncome > 0 ? `để dành ${Math.round((monthIncome - total) / monthIncome * 100)}% thu nhập` : "thu trừ chi"))), pace && React.createElement("section", {
+  }, monthIncome > 0 ? `để dành ${Math.round((monthIncome - total) / monthIncome * 100)}% thu nhập` : "thu trừ chi"))), data.claims && data.claims.count > 0 && React.createElement("button", {
+    className: "box between",
+    onClick: onOpenClaims,
+    style: {
+      width: "100%",
+      padding: 14,
+      marginBottom: 20,
+      textAlign: "left",
+      gap: 12
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Chờ claim công ty"), React.createElement("span", {
+    className: "num",
+    style: {
+      display: "block",
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 2
+    }
+  }, data.claims.count, " khoản tiếp khách, công tác chưa được hoàn")), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 20,
+      fontWeight: 600,
+      color: cssVar("--amber"),
+      flexShrink: 0
+    }
+  }, short(data.claims.total))), pace && React.createElement("section", {
     style: {
       marginBottom: 20
     }
@@ -1051,6 +1088,7 @@ function Entry({
   const [cardId, setCardId] = useState(src.card_id || (data.cards[0] || {}).id || "");
   const [note, setNote] = useState(src.note || "");
   const [date, setDate] = useState(src.date || todayISO());
+  const [claimStatus, setClaimStatus] = useState(initial ? initial.claim_status || "none" : "pending");
   const [accountId, setAccountId] = useState(initial ? initial.account_id || "" : defaultAccount(data.accounts, src.method || "cash"));
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -1099,6 +1137,7 @@ function Entry({
         method,
         card_id: method === "card" ? cardId : null,
         account_id: method === "card" ? null : accountId || null,
+        claim_status: type === "personal" ? undefined : claimStatus,
         note: note.trim(),
         date,
         source: receipt ? "ocr" : initial ? initial.source : "manual",
@@ -1314,6 +1353,13 @@ function Entry({
     value: type,
     onChange: setType,
     accent: true
+  })), type !== "personal" && React.createElement(Field, {
+    label: "Claim công ty",
+    hint: claimStatus === "pending" ? "Khoản này sẽ nằm trong mục Chờ claim cho tới khi công ty hoàn." : null
+  }, React.createElement(Chips, {
+    options: CLAIM_STATUS,
+    value: claimStatus,
+    onChange: setClaimStatus
   })), React.createElement(Field, {
     label: "Thanh toán"
   }, React.createElement(Chips, {
@@ -2325,7 +2371,8 @@ function Accounts({
   reload,
   flash,
   onAdd,
-  onEditIncome
+  onEditIncome,
+  onOpenClaims
 }) {
   const accounts = data.accounts || [];
   const active = accounts.filter(a => !a.archived);
@@ -2510,7 +2557,15 @@ function Accounts({
       color: cssVar("--green"),
       flexShrink: 0
     }
-  }, "+", money(i.amount)))))), transfers.length > 0 && React.createElement("section", {
+  }, "+", money(i.amount)))))), data.claims && data.claims.count > 0 && React.createElement(Button, {
+    kind: "outline",
+    onClick: onOpenClaims,
+    style: {
+      width: "100%",
+      marginTop: -8,
+      marginBottom: 26
+    }
+  }, "Chờ claim công ty ", short(data.claims.total)), transfers.length > 0 && React.createElement("section", {
     style: {
       marginBottom: 26
     }
@@ -2786,12 +2841,13 @@ function AccountForm({
 function IncomeEntry({
   data,
   initial,
+  prefill,
   onSwitch,
   onClose,
   onDone,
   flash
 }) {
-  const src = initial || {};
+  const src = initial || prefill || {};
   const accounts = (data.accounts || []).filter(a => !a.archived || a.id === src.account_id);
   const firstPick = defaultAccount(accounts, "bank") || (accounts[0] || {}).id || "";
   const [amount, setAmount] = useState(src.amount ? String(src.amount) : "");
@@ -2801,7 +2857,15 @@ function IncomeEntry({
   const [date, setDate] = useState(src.date || todayISO());
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [claimIds, setClaimIds] = useState(src.claim_tx_ids || []);
+  const [amountTouched, setAmountTouched] = useState(Boolean(initial));
   const amountNum = Number(amount) || 0;
+  const onClaimChange = (ids, rows, fromLoad) => {
+    setClaimIds(ids);
+    if (fromLoad || amountTouched) return;
+    const total = rows.filter(r => ids.includes(r.id)).reduce((s, r) => s + r.amount, 0);
+    setAmount(total > 0 ? String(total) : "");
+  };
   const submit = async () => {
     if (amountNum <= 0) return;
     setBusy(true);
@@ -2811,7 +2875,8 @@ function IncomeEntry({
         source,
         account_id: accountId || null,
         note: note.trim(),
-        date
+        date,
+        claim_tx_ids: source === "reimburse" ? claimIds : []
       };
       if (initial) await api("/incomes/" + initial.id, {
         method: "PUT",
@@ -2846,15 +2911,22 @@ function IncomeEntry({
     onChange: onSwitch
   }), React.createElement(AmountInput, {
     value: amount,
-    onChange: setAmount,
-    autoFocus: !initial
+    onChange: v => {
+      setAmount(v);
+      setAmountTouched(true);
+    },
+    autoFocus: !initial && !prefill
   }), React.createElement(Field, {
     label: "Nguồn thu"
   }, React.createElement(Chips, {
     options: INCOME_SOURCES,
     value: source,
     onChange: setSource
-  })), accounts.length > 0 ? React.createElement(Field, {
+  })), source === "reimburse" && React.createElement(ClaimPicker, {
+    incomeId: initial ? initial.id : null,
+    value: claimIds,
+    onChange: onClaimChange
+  }), accounts.length > 0 ? React.createElement(Field, {
     label: "Vào tài khoản"
   }, React.createElement(Chips, {
     options: [...accounts.map(a => ({
@@ -3031,6 +3103,329 @@ function TransferEntry({
       flex: 1
     }
   }, busy ? "Đang lưu…" : "Ghi chuyển tiền"))));
+}
+const CLAIM_STATUS = [{
+  id: "pending",
+  label: "Chờ claim"
+}, {
+  id: "claimed",
+  label: "Đã claim"
+}, {
+  id: "rejected",
+  label: "Không được duyệt"
+}, {
+  id: "none",
+  label: "Không claim"
+}];
+function ClaimRow({
+  t,
+  checked,
+  onToggle,
+  right
+}) {
+  return React.createElement("div", {
+    className: "tape between",
+    style: {
+      padding: "11px 0",
+      gap: 10
+    }
+  }, React.createElement("button", {
+    onClick: onToggle,
+    "aria-pressed": checked,
+    className: "row",
+    style: {
+      gap: 12,
+      minWidth: 0,
+      flex: 1,
+      textAlign: "left"
+    }
+  }, React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      width: 20,
+      height: 20,
+      flexShrink: 0,
+      borderRadius: 6,
+      display: "grid",
+      placeItems: "center",
+      border: `1.5px solid ${checked ? cssVar("--primary") : cssVar("--muted")}`,
+      background: checked ? cssVar("--primary") : "transparent",
+      color: cssVar("--onprimary"),
+      fontSize: 13,
+      fontWeight: 700,
+      lineHeight: 1
+    }
+  }, checked ? "✓" : ""), React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    className: "truncate",
+    style: {
+      display: "block",
+      fontSize: 14
+    }
+  }, t.note || t.category_name || "Khoản chi"), React.createElement("span", {
+    className: "num truncate",
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, DAY_VN(t.date), ", ", typeLabel(t.type).toLowerCase(), t.note && t.category_name ? `, ${t.category_name}` : ""))), right || React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      flexShrink: 0
+    }
+  }, money(t.amount)));
+}
+function ClaimsSheet({
+  onClose,
+  onReceive,
+  onChanged,
+  flash
+}) {
+  const [d, setD] = useState(null);
+  const [sel, setSel] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api("/claims").then(setD).catch(e => flash(e.message)), [flash]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const selTotal = d ? d.pending.filter(t => sel.includes(t.id)).reduce((s, t) => s + t.amount, 0) : 0;
+  const allOn = d && d.pending.length > 0 && sel.length === d.pending.length;
+  const mark = async (ids, status, msg) => {
+    setBusy(true);
+    try {
+      await api("/claims/mark", {
+        method: "POST",
+        body: {
+          ids,
+          status
+        }
+      });
+      flash(msg);
+      setSel([]);
+      await load();
+      onChanged();
+    } catch (e) {
+      flash(e.message);
+    }
+    setBusy(false);
+  };
+  return React.createElement(Sheet, {
+    title: "Chờ claim công ty",
+    onClose: onClose
+  }, !d ? React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 8,
+      color: cssVar("--muted"),
+      fontSize: 13
+    }
+  }, React.createElement("span", {
+    className: "spin"
+  }), " Đang tải…") : React.createElement(React.Fragment, null, React.createElement("section", {
+    style: {
+      marginBottom: 24
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted")
+    }
+  }, "Công ty còn phải hoàn cho bạn"), React.createElement("div", {
+    className: "num hero-num",
+    style: {
+      fontSize: 32,
+      fontWeight: 700,
+      letterSpacing: "-.02em",
+      marginTop: 2
+    }
+  }, money(d.pending_total)), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 4
+    }
+  }, d.pending.length, " khoản tiếp khách, công tác chưa được hoàn")), d.pending.length === 0 ? React.createElement(Empty, {
+    text: "Không có khoản nào đang chờ claim. Khoản chi Tiếp khách hoặc Công tác mới ghi sẽ tự vào đây."
+  }) : React.createElement("section", {
+    style: {
+      marginBottom: 22
+    }
+  }, React.createElement(SectionLabel, {
+    right: React.createElement("button", {
+      onClick: () => setSel(allOn ? [] : d.pending.map(t => t.id)),
+      style: {
+        fontSize: 12,
+        color: cssVar("--blue")
+      }
+    }, allOn ? "Bỏ chọn" : "Chọn tất cả")
+  }, "Đang chờ"), React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, d.pending.map(t => React.createElement(ClaimRow, {
+    key: t.id,
+    t: t,
+    checked: sel.includes(t.id),
+    onToggle: () => toggle(t.id)
+  }))), sel.length > 0 && React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14,
+      marginTop: 14
+    }
+  }, React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 13,
+      marginBottom: 10
+    }
+  }, "Đã chọn ", sel.length, " khoản, ", money(selTotal)), React.createElement(Button, {
+    onClick: () => onReceive(sel, selTotal),
+    disabled: busy,
+    style: {
+      width: "100%"
+    }
+  }, "Ghi tiền claim đã nhận"), React.createElement("div", {
+    className: "wrap",
+    style: {
+      marginTop: 10,
+      justifyContent: "center"
+    }
+  }, React.createElement(Button, {
+    kind: "outline",
+    disabled: busy,
+    style: {
+      padding: "8px 14px",
+      fontSize: 13
+    },
+    onClick: () => mark(sel, "claimed", "Đã đánh dấu đã claim")
+  }, "Đã claim, không ghi thu"), React.createElement(Button, {
+    kind: "danger",
+    disabled: busy,
+    onClick: () => mark(sel, "rejected", "Đã đánh dấu không được duyệt")
+  }, "Không được duyệt")))), d.untracked.length > 0 && React.createElement("section", {
+    style: {
+      marginBottom: 22
+    }
+  }, React.createElement(SectionLabel, {
+    right: React.createElement("button", {
+      disabled: busy,
+      style: {
+        fontSize: 12,
+        color: cssVar("--blue")
+      },
+      onClick: () => mark(d.untracked.map(t => t.id), "pending", `Đã đưa ${d.untracked.length} khoản vào chờ claim`)
+    }, "Đưa tất cả vào")
+  }, "Chưa theo dõi claim"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 6,
+      lineHeight: 1.5
+    }
+  }, "Khoản tiếp khách, công tác 90 ngày qua, ghi trước khi có tính năng này. Chạm vào khoản nào công ty chưa hoàn để đưa vào chờ claim."), React.createElement("div", {
+    style: {
+      marginTop: 6
+    }
+  }, d.untracked.map(t => React.createElement(ClaimRow, {
+    key: t.id,
+    t: t,
+    checked: false,
+    onToggle: () => !busy && mark([t.id], "pending", "Đã đưa vào chờ claim")
+  })))), d.done.length > 0 && React.createElement("section", {
+    style: {
+      marginBottom: 12
+    }
+  }, React.createElement(SectionLabel, null, "Đã xử lý gần đây"), React.createElement("div", {
+    style: {
+      marginTop: 6
+    }
+  }, d.done.map(t => React.createElement("div", {
+    key: t.id,
+    className: "tape between",
+    style: {
+      padding: "11px 0",
+      gap: 10
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    className: "truncate",
+    style: {
+      display: "block",
+      fontSize: 14
+    }
+  }, t.note || t.category_name || "Khoản chi"), React.createElement("span", {
+    className: "num truncate",
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: t.claim_status === "rejected" ? cssVar("--red") : cssVar("--green")
+    }
+  }, DAY_VN(t.date), ", ", t.claim_status === "rejected" ? "không được duyệt" : "đã hoàn")), React.createElement("span", {
+    style: {
+      textAlign: "right",
+      flexShrink: 0
+    }
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      display: "block",
+      fontSize: 13
+    }
+  }, money(t.amount)), React.createElement("button", {
+    disabled: busy,
+    onClick: () => mark([t.id], "pending", "Đã đưa lại vào chờ claim"),
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Hoàn tác"))))))));
+}
+function ClaimPicker({
+  incomeId,
+  value,
+  onChange
+}) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    api("/claims" + (incomeId ? "?income=" + incomeId : "")).then(d => {
+      const seen = new Set();
+      const list = [...d.linked, ...d.pending].filter(t => seen.has(t.id) ? false : seen.add(t.id));
+      setRows(list);
+      if (incomeId) onChange(d.linked.map(t => t.id), list, true);
+    }).catch(() => setRows([]));
+  }, [incomeId]);
+  if (!rows) return null;
+  if (rows.length === 0) {
+    return React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: cssVar("--muted"),
+        marginBottom: 18
+      }
+    }, "Không có khoản chi nào đang chờ claim để gắn vào.");
+  }
+  const toggle = t => onChange(value.includes(t.id) ? value.filter(x => x !== t.id) : [...value, t.id], rows, false);
+  return React.createElement(Field, {
+    label: "Hoàn cho khoản chi",
+    hint: "Khoản được chọn sẽ chuyển sang đã claim. Số tiền tự cộng theo khoản chọn, bạn vẫn sửa được nếu công ty duyệt khác."
+  }, React.createElement("div", null, rows.map(t => React.createElement(ClaimRow, {
+    key: t.id,
+    t: t,
+    checked: value.includes(t.id),
+    onToggle: () => toggle(t)
+  }))));
 }
 const TRADE_TYPES = [{
   id: "BUY",
@@ -6505,6 +6900,7 @@ function App() {
   const [data, setData] = useState(null);
   const [txs, setTxs] = useState([]);
   const [incomes, setIncomes] = useState([]);
+  const [showClaims, setShowClaims] = useState(false);
   const [tab, setTab] = useState("home");
   const [month, setMonth] = useState(monthOf(todayISO()));
   const [entry, setEntry] = useState(null);
@@ -6699,6 +7095,7 @@ function App() {
     setMonth: setMonth,
     txs: txs,
     incomes: incomes,
+    onOpenClaims: () => setShowClaims(true),
     onEdit: t => setEntry({
       initial: t
     }),
@@ -6715,6 +7112,7 @@ function App() {
     incomes: incomes,
     reload: reload,
     flash: flash,
+    onOpenClaims: () => setShowClaims(true),
     onAdd: kind => setEntry({
       kind
     }),
@@ -6777,6 +7175,7 @@ function App() {
   }))), entry && entry.kind === "income" && React.createElement(IncomeEntry, {
     data: data,
     initial: entry.initial,
+    prefill: entry.prefill,
     flash: flash,
     onSwitch: kind => setEntry({
       kind
@@ -6802,6 +7201,22 @@ function App() {
     onSaved: onSaved,
     onDeleted: onDeleted,
     onClose: () => setEntry(null)
+  }), showClaims && React.createElement(ClaimsSheet, {
+    flash: flash,
+    onClose: () => setShowClaims(false),
+    onChanged: reload,
+    onReceive: (ids, total) => {
+      setShowClaims(false);
+      setEntry({
+        kind: "income",
+        prefill: {
+          source: "reimburse",
+          amount: total,
+          claim_tx_ids: ids,
+          note: "Claim chi phí công ty"
+        }
+      });
+    }
   }), showLock && React.createElement(LockSettings, {
     cfg: lockCfg,
     flash: flash,

@@ -47,7 +47,7 @@ function RowButton({ onClick, children }) {
   );
 }
 
-function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome }) {
+function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, onOpenClaims }) {
   const accounts = data.accounts || [];
   const active = accounts.filter((a) => !a.archived);
   const [editing, setEditing] = useState(null);
@@ -165,6 +165,12 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome }) 
             </div>
           )}
         </section>
+
+        {data.claims && data.claims.count > 0 && (
+          <Button kind="outline" onClick={onOpenClaims} style={{ width: "100%", marginTop: -8, marginBottom: 26 }}>
+            Chờ claim công ty {short(data.claims.total)}
+          </Button>
+        )}
 
         {transfers.length > 0 && (
           <section style={{ marginBottom: 26 }}>
@@ -329,8 +335,8 @@ function AccountForm({ initial, onClose, onSaved, flash }) {
   );
 }
 
-function IncomeEntry({ data, initial, onSwitch, onClose, onDone, flash }) {
-  const src = initial || {};
+function IncomeEntry({ data, initial, prefill, onSwitch, onClose, onDone, flash }) {
+  const src = initial || prefill || {};
   const accounts = (data.accounts || []).filter((a) => !a.archived || a.id === src.account_id);
   const firstPick = defaultAccount(accounts, "bank") || (accounts[0] || {}).id || "";
   const [amount, setAmount] = useState(src.amount ? String(src.amount) : "");
@@ -340,13 +346,23 @@ function IncomeEntry({ data, initial, onSwitch, onClose, onDone, flash }) {
   const [date, setDate] = useState(src.date || todayISO());
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [claimIds, setClaimIds] = useState(src.claim_tx_ids || []);
+  const [amountTouched, setAmountTouched] = useState(Boolean(initial));
   const amountNum = Number(amount) || 0;
+
+  const onClaimChange = (ids, rows, fromLoad) => {
+    setClaimIds(ids);
+    if (fromLoad || amountTouched) return;
+    const total = rows.filter((r) => ids.includes(r.id)).reduce((s, r) => s + r.amount, 0);
+    setAmount(total > 0 ? String(total) : "");
+  };
 
   const submit = async () => {
     if (amountNum <= 0) return;
     setBusy(true);
     try {
-      const body = { amount: amountNum, source, account_id: accountId || null, note: note.trim(), date };
+      const body = { amount: amountNum, source, account_id: accountId || null, note: note.trim(), date,
+        claim_tx_ids: source === "reimburse" ? claimIds : [] };
       if (initial) await api("/incomes/" + initial.id, { method: "PUT", body });
       else await api("/incomes", { method: "POST", body });
       onDone(initial ? "Đã cập nhật khoản thu" : "Đã ghi thu nhập", date);
@@ -370,11 +386,15 @@ function IncomeEntry({ data, initial, onSwitch, onClose, onDone, flash }) {
   return (
     <Sheet title={initial ? "Sửa khoản thu" : "Ghi thu nhập"} onClose={onClose}>
       {!initial && <KindSwitch value="income" onChange={onSwitch} />}
-      <AmountInput value={amount} onChange={setAmount} autoFocus={!initial} />
+      <AmountInput value={amount} onChange={(v) => { setAmount(v); setAmountTouched(true); }} autoFocus={!initial && !prefill} />
 
       <Field label="Nguồn thu">
         <Chips options={INCOME_SOURCES} value={source} onChange={setSource} />
       </Field>
+
+      {source === "reimburse" && (
+        <ClaimPicker incomeId={initial ? initial.id : null} value={claimIds} onChange={onClaimChange} />
+      )}
 
       {accounts.length > 0 ? (
         <Field label="Vào tài khoản">
