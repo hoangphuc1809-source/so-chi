@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { q, uid, now, seedCategories } from "./db.js";
 import { createUser, login, verifyToken, userCount, verifyPassword, setPin, hasPin, checkPin, unlockByPassword } from "./auth.js";
 import { readReceipt } from "./ocr.js";
-import { accountsWithBalance, resolveTxAccount, registerMoneyRoutes, applyClaim, claimSummary } from "./money.js";
+import { accountsWithBalance, resolveTxAccount, registerMoneyRoutes, applyClaim, claimSummary, dueIncomeRules } from "./money.js";
 import { ask as assistantAsk, insights as computeInsights } from "./assistant.js";
 import { fetchPrices, applyLivePrices, fetchDailyBars, findUnusualVolume } from "./prices.js";
 import { importLedger, reconcile, positions as stockPositions, state as stockState, loadTxs, loadVoided,
@@ -225,6 +225,8 @@ route("GET", "/api/bootstrap", (ctx) => {
     cards: cardsWithBalance(u),
     accounts: accountsWithBalance(u),
     claims: claimSummary(u),
+    income_due: dueIncomeRules(u),
+    has_stock: Boolean(q.get("SELECT 1 AS x FROM stock_tx WHERE user_id=? AND voided=0 LIMIT 1", u)),
     bills: billsWithStatus(u),
     settings: Object.fromEntries(
       q.all("SELECT key,value FROM settings WHERE user_id=?", u).map((s) => [s.key, s.value])
@@ -888,6 +890,10 @@ route("POST", "/api/reset", (ctx) => {
     wipe("incomes", "khoan_thu");
     wipe("transfers", "chuyen_tien");
     wipe("accounts", "tai_khoan");
+    wipe("income_rules", "thu_dinh_ky");
+    wipe("account_adjustments", "dieu_chinh_so_du");
+    wipe("goals", "muc_tieu");
+    wipe("networth_snapshots", "moc_tai_san");
   }
   if (scope === "all" || scope === "stock") {
     wipe("stock_tx", "giao_dich_chung_khoan");
@@ -933,6 +939,10 @@ route("GET", "/api/export.json", (ctx) => ({
   accounts: q.all("SELECT * FROM accounts WHERE user_id=?", ctx.userId),
   incomes: q.all("SELECT * FROM incomes WHERE user_id=? ORDER BY date DESC", ctx.userId),
   transfers: q.all("SELECT * FROM transfers WHERE user_id=? ORDER BY date DESC", ctx.userId),
+  income_rules: q.all("SELECT * FROM income_rules WHERE user_id=?", ctx.userId),
+  account_adjustments: q.all("SELECT * FROM account_adjustments WHERE user_id=?", ctx.userId),
+  goals: q.all("SELECT * FROM goals WHERE user_id=?", ctx.userId),
+  networth_snapshots: q.all("SELECT * FROM networth_snapshots WHERE user_id=? ORDER BY date", ctx.userId),
 }));
 
 /* ---- nhập dữ liệu từ bản GĐ1 (localStorage) ---- */

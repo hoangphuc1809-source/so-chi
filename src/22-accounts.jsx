@@ -47,7 +47,7 @@ function RowButton({ onClick, children }) {
   );
 }
 
-function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, onOpenClaims }) {
+function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, onOpenClaims, onReceiveIncome }) {
   const accounts = data.accounts || [];
   const active = accounts.filter((a) => !a.archived);
   const [editing, setEditing] = useState(null);
@@ -55,14 +55,19 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, on
   const [transfers, setTransfers] = useState([]);
   const [confirmId, setConfirmId] = useState(null);
   const [nav, setNav] = useState(null);
+  const [snapKey, setSnapKey] = useState(0);
 
   useEffect(() => {
     api("/transfers?limit=8").then((r) => setTransfers(r.transfers)).catch(() => {});
   }, [data]);
 
   useEffect(() => {
+    // Lay NAV chung khoan roi luu moc tai san rong hom nay (moi ngay mot moc, mo lai thi ghi de).
     api("/portfolio")
-      .then((r) => { const n = r.snapshot && r.snapshot.nav; if (typeof n === "number") setNav(n); })
+      .then((r) => { const n = r.snapshot && r.snapshot.nav; if (typeof n === "number") { setNav(n); return n; } return null; })
+      .catch(() => null)
+      .then((n) => (accounts.length || n != null) && api("/networth/snapshot", { method: "POST", body: { stock: n } }))
+      .then(() => setSnapKey((k) => k + 1))
       .catch(() => {});
   }, []);
 
@@ -71,7 +76,7 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, on
   const net = cash + (nav || 0) - debt;
   const monthIncomes = incomes.filter((i) => monthOf(i.date) === month);
   const incomeTotal = monthIncomes.reduce((s, i) => s + i.amount, 0);
-  const accName = (id) => (accounts.find((a) => a.id === id) || {}).name || "tài khoản đã xóa";
+  const accName = (id) => (id === "stock" ? "chứng khoán" : (accounts.find((a) => a.id === id) || {}).name || "tài khoản đã xóa");
 
   const delTransfer = async (t) => {
     try {
@@ -99,6 +104,7 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, on
           <div className="num" style={{ fontSize: 12, color: cssVar("--muted"), marginTop: 4 }}>
             {parts.join(" + ")}{debt > 0 ? ` − nợ thẻ ${short(debt)}` : ""}
           </div>
+          <NetworthTrend refreshKey={snapKey} />
         </section>
 
         <section style={{ marginBottom: 26 }}>
@@ -132,12 +138,14 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, on
               ))}
             </div>
           )}
-          {active.length >= 2 && (
+          {active.length + (data.has_stock ? 1 : 0) >= 2 && (
             <Button kind="outline" onClick={() => onAdd("transfer")} style={{ width: "100%", marginTop: 12 }}>
               Chuyển tiền giữa tài khoản
             </Button>
           )}
         </section>
+
+        <IncomeRulesSection data={data} reload={reload} flash={flash} onReceive={onReceiveIncome} />
 
         <section style={{ marginBottom: 26 }}>
           <SectionLabel right={incomeTotal > 0 && (
@@ -171,6 +179,8 @@ function Accounts({ data, month, incomes, reload, flash, onAdd, onEditIncome, on
             Chờ claim công ty {short(data.claims.total)}
           </Button>
         )}
+
+        <GoalsSection data={data} reload={reload} flash={flash} />
 
         {transfers.length > 0 && (
           <section style={{ marginBottom: 26 }}>
@@ -265,6 +275,7 @@ function AccountForm({ initial, onClose, onSaved, flash }) {
 
   return (
     <Sheet title={initial ? "Sửa tài khoản" : "Thêm tài khoản"} onClose={onClose}>
+      {initial && !initial.archived && <ReconcileBox account={initial} flash={flash} onDone={onSaved} />}
       <Field label="Tên">
         <input className="field" value={name} autoFocus={!initial} placeholder="Techcombank lương, Ví tiền mặt, Sổ tiết kiệm VCB…"
           onChange={(e) => setName(e.target.value)} />
@@ -341,7 +352,9 @@ function IncomeEntry({ data, initial, prefill, onSwitch, onClose, onDone, flash 
   const firstPick = defaultAccount(accounts, "bank") || (accounts[0] || {}).id || "";
   const [amount, setAmount] = useState(src.amount ? String(src.amount) : "");
   const [source, setSource] = useState(src.source || "salary");
-  const [accountId, setAccountId] = useState(initial ? src.account_id || "" : firstPick);
+  const [accountId, setAccountId] = useState(
+    initial || (prefill && prefill.account_id !== undefined) ? src.account_id || "" : firstPick
+  );
   const [note, setNote] = useState(src.note || "");
   const [date, setDate] = useState(src.date || todayISO());
   const [busy, setBusy] = useState(false);
@@ -362,7 +375,7 @@ function IncomeEntry({ data, initial, prefill, onSwitch, onClose, onDone, flash 
     setBusy(true);
     try {
       const body = { amount: amountNum, source, account_id: accountId || null, note: note.trim(), date,
-        claim_tx_ids: source === "reimburse" ? claimIds : [] };
+        claim_tx_ids: source === "reimburse" ? claimIds : [], rule_id: !initial && src.rule_id ? src.rule_id : undefined };
       if (initial) await api("/incomes/" + initial.id, { method: "PUT", body });
       else await api("/incomes", { method: "POST", body });
       onDone(initial ? "Đã cập nhật khoản thu" : "Đã ghi thu nhập", date);
@@ -466,18 +479,18 @@ function TransferEntry({ data, onSwitch, onClose, onDone, flash }) {
   return (
     <Sheet title="Chuyển tiền" onClose={onClose}>
       <KindSwitch value="transfer" onChange={onSwitch} />
-      {accounts.length < 2 ? (
+      {accounts.length + (data.has_stock ? 1 : 0) < 2 ? (
         <Empty text="Cần ít nhất 2 tài khoản để chuyển tiền. Thêm tài khoản ở tab Tài khoản." />
       ) : (
         <>
           <AmountInput value={amount} onChange={setAmount} autoFocus />
           <Field label="Từ tài khoản">
-            <Chips options={accounts.map((a) => ({ id: a.id, label: `${a.name} ${short(a.balance)}` }))}
+            <Chips options={[...accounts.map((a) => ({ id: a.id, label: `${a.name} ${short(a.balance)}` })), ...(data.has_stock ? [{ id: "stock", label: "Chứng khoán" }] : [])]}
               value={from} onChange={(v) => { setFrom(v); if (v === to) setTo(""); }} />
           </Field>
           <Field label="Sang tài khoản"
-            hint="Rút tiền mặt, gửi tiết kiệm, nạp ví đều ghi ở đây. Chuyển tiền không tính là thu hay chi.">
-            <Chips options={accounts.filter((a) => a.id !== from).map((a) => ({ id: a.id, label: a.name }))}
+            hint={`Rút tiền mặt, gửi tiết kiệm, nạp ví đều ghi ở đây. Chuyển tiền không tính là thu hay chi.${data.has_stock ? " Nạp, rút chứng khoán sẽ ghi luôn vào sổ Đầu tư." : ""}`}>
+            <Chips options={[...accounts.filter((a) => a.id !== from).map((a) => ({ id: a.id, label: a.name })), ...(data.has_stock && from !== "stock" ? [{ id: "stock", label: "Chứng khoán" }] : [])]}
               value={to} onChange={setTo} />
           </Field>
           <Field label="Ghi chú">

@@ -1,0 +1,10 @@
+[Unit]
+Description=Sao luu So Chi luc 02:30 gio Viet Nam
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Ho_Chi_Minh
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

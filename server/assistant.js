@@ -1,4 +1,5 @@
 import { q } from "./db.js";
+import { accountsWithBalance, claimSummary, goalsWithProgress } from "./money.js";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const ENDPOINT = (key) =>
@@ -141,6 +142,36 @@ export function buildContext(userId, month = monthNow()) {
       L.push(`  ${c.bank}${c.last4 ? " ••" + c.last4 : ""}: dư nợ ${money(c.balance)} / hạn mức ${money(c.limit)} (${u}%), hạn trả ngày ${c.due_day} hàng tháng`);
     });
   }
+  // Thu nhap, so du, cho claim, muc tieu. Loi o day khong duoc lam hong phan chi tieu.
+  try {
+    const SRC = { salary: "Lương", bonus: "Thưởng", reimburse: "Claim chi phí công ty", business: "Kinh doanh / việc phụ",
+      interest: "Lãi tiết kiệm", dividend: "Cổ tức / đầu tư", gift: "Được cho / tặng", other: "Khác" };
+    const inc = q.all(
+      "SELECT source, SUM(amount) t, COUNT(*) n FROM incomes WHERE user_id=? AND date LIKE ? GROUP BY source ORDER BY t DESC",
+      userId, like
+    );
+    if (inc.length) {
+      const incTotal = inc.reduce((s, r) => s + r.t, 0);
+      L.push(`\nTHU NHẬP THÁNG ${month}: ${money(incTotal)}. Còn lại sau chi (thu trừ chi): ${money(incTotal - total.t)}.`);
+      inc.forEach((r) => L.push(`  ${SRC[r.source] || r.source}: ${money(r.t)} (${r.n} khoản)`));
+      L.push("  Ghi chú: Claim chi phí công ty là tiền công ty hoàn lại khoản đã chi hộ, tính là thu nhập nhưng không phải lương.");
+    }
+    const KIND = { cash: "tiền mặt", bank: "ngân hàng", ewallet: "ví điện tử", saving: "tiết kiệm" };
+    const accs = accountsWithBalance(userId).filter((a) => !a.archived);
+    if (accs.length) {
+      L.push("\nSỐ DƯ TÀI KHOẢN HIỆN TẠI:");
+      accs.forEach((a) => L.push(`  ${a.name} (${KIND[a.kind] || a.kind}): ${money(a.balance)}${a.kind === "saving" && a.maturity ? `, đáo hạn ${a.maturity}` : ""}`));
+      L.push(`  Tổng tiền trong các tài khoản: ${money(accs.reduce((s, a) => s + a.balance, 0))}`);
+    }
+    const cs = claimSummary(userId);
+    if (cs.count) L.push(`\nCHỜ CLAIM CÔNG TY: ${cs.count} khoản tiếp khách, công tác chưa được hoàn, tổng ${money(cs.total)}.`);
+    const goals = goalsWithProgress(userId);
+    if (goals.length) {
+      L.push("\nMỤC TIÊU TIẾT KIỆM:");
+      goals.forEach((g) => L.push(`  ${g.name}: đã có ${money(g.current)} / ${money(g.target)} (${Math.round(g.pct * 100)}%)${g.monthly_needed != null ? `, cần ${money(g.monthly_needed)}/tháng, còn ${g.months_left} tháng` : ""}`));
+    }
+  } catch { /* bang moi chua co thi bo qua */ }
+
   if (total.n === 0) L.push("\nLƯU Ý: tháng này chưa có giao dịch nào được ghi.");
 
   // Danh muc chung khoan (neu portfolio-bot da day snapshot sang)

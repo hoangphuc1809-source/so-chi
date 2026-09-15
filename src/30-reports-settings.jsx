@@ -28,6 +28,8 @@ function Reports({ month, setMonth, flash }) {
         </div>
       </section>
 
+      <CashflowReport month={month} setMonth={setMonth} />
+
       <section style={{ marginBottom: 30 }}>
         <SectionLabel>12 tháng gần nhất</SectionLabel>
         <div className="row" style={{ alignItems: "flex-end", gap: 4, height: 110, marginTop: 14 }}>
@@ -447,6 +449,11 @@ function App() {
     reload();
   };
 
+  const receiveIncome = (r) => setEntry({
+    kind: "income",
+    prefill: { source: r.source, amount: r.amount, account_id: r.account_id, note: r.name, rule_id: r.id },
+  });
+
   const onDeleted = (id) => {
     setTxs((prev) => prev.filter((t) => t.id !== id));
     setEntry(null);
@@ -509,14 +516,14 @@ function App() {
         </header>
 
         {tab === "home" && (
-          <Home data={data} month={month} setMonth={setMonth} txs={txs} incomes={incomes} onOpenClaims={() => setShowClaims(true)}
+          <Home data={data} month={month} setMonth={setMonth} txs={txs} incomes={incomes} onOpenClaims={() => setShowClaims(true)} onReceiveIncome={receiveIncome}
             onEdit={(t) => setEntry({ initial: t })} onAdd={() => setEntry({})}
             onPayBill={payBillQuick} goTab={setTab} />
         )}
         {tab === "bills" && <Bills data={data} reload={reload} flash={flash} />}
         {tab === "cards" && (
           <Accounts data={data} month={month} incomes={incomes} reload={reload} flash={flash}
-            onOpenClaims={() => setShowClaims(true)}
+            onOpenClaims={() => setShowClaims(true)} onReceiveIncome={receiveIncome}
             onAdd={(kind) => setEntry({ kind })} onEditIncome={(i) => setEntry({ kind: "income", initial: i })} />
         )}
         {tab === "invest" && <Invest flash={flash} />}

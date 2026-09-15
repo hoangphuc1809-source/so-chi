@@ -558,7 +558,8 @@ function Home({
   onAdd,
   onPayBill,
   goTab,
-  onOpenClaims
+  onOpenClaims,
+  onReceiveIncome
 }) {
   const {
     categories,
@@ -710,7 +711,46 @@ function Home({
       color: cssVar("--muted"),
       marginTop: 2
     }
-  }, monthIncome > 0 ? `để dành ${Math.round((monthIncome - total) / monthIncome * 100)}% thu nhập` : "thu trừ chi"))), data.claims && data.claims.count > 0 && React.createElement("button", {
+  }, monthIncome > 0 ? `để dành ${Math.round((monthIncome - total) / monthIncome * 100)}% thu nhập` : "thu trừ chi"))), (data.income_due || []).map(r => React.createElement("div", {
+    key: r.id,
+    className: "box between",
+    style: {
+      padding: 14,
+      marginBottom: 12,
+      gap: 12
+    }
+  }, React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, r.days_left === 0 ? "Dự kiến nhận hôm nay" : `Dự kiến từ ${fmtDate(r.next_date)}`), React.createElement("span", {
+    className: "truncate",
+    style: {
+      display: "block",
+      fontSize: 14,
+      fontWeight: 500,
+      marginTop: 2
+    }
+  }, r.name, " ", React.createElement("span", {
+    className: "num",
+    style: {
+      color: cssVar("--green")
+    }
+  }, "+", short(r.amount)))), React.createElement(Button, {
+    kind: "outline",
+    style: {
+      padding: "6px 14px",
+      fontSize: 13,
+      flexShrink: 0
+    },
+    onClick: () => onReceiveIncome(r)
+  }, "Đã nhận"))), data.claims && data.claims.count > 0 && React.createElement("button", {
     className: "box between",
     onClick: onOpenClaims,
     style: {
@@ -2372,7 +2412,8 @@ function Accounts({
   flash,
   onAdd,
   onEditIncome,
-  onOpenClaims
+  onOpenClaims,
+  onReceiveIncome
 }) {
   const accounts = data.accounts || [];
   const active = accounts.filter(a => !a.archived);
@@ -2381,21 +2422,31 @@ function Accounts({
   const [transfers, setTransfers] = useState([]);
   const [confirmId, setConfirmId] = useState(null);
   const [nav, setNav] = useState(null);
+  const [snapKey, setSnapKey] = useState(0);
   useEffect(() => {
     api("/transfers?limit=8").then(r => setTransfers(r.transfers)).catch(() => {});
   }, [data]);
   useEffect(() => {
     api("/portfolio").then(r => {
       const n = r.snapshot && r.snapshot.nav;
-      if (typeof n === "number") setNav(n);
-    }).catch(() => {});
+      if (typeof n === "number") {
+        setNav(n);
+        return n;
+      }
+      return null;
+    }).catch(() => null).then(n => (accounts.length || n != null) && api("/networth/snapshot", {
+      method: "POST",
+      body: {
+        stock: n
+      }
+    })).then(() => setSnapKey(k => k + 1)).catch(() => {});
   }, []);
   const cash = active.reduce((s, a) => s + a.balance, 0);
   const debt = data.cards.reduce((s, c) => s + Math.max(0, c.balance), 0);
   const net = cash + (nav || 0) - debt;
   const monthIncomes = incomes.filter(i => monthOf(i.date) === month);
   const incomeTotal = monthIncomes.reduce((s, i) => s + i.amount, 0);
-  const accName = id => (accounts.find(a => a.id === id) || {}).name || "tài khoản đã xóa";
+  const accName = id => id === "stock" ? "chứng khoán" : (accounts.find(a => a.id === id) || {}).name || "tài khoản đã xóa";
   const delTransfer = async t => {
     try {
       await api("/transfers/" + t.id, {
@@ -2440,7 +2491,9 @@ function Accounts({
       color: cssVar("--muted"),
       marginTop: 4
     }
-  }, parts.join(" + "), debt > 0 ? ` − nợ thẻ ${short(debt)}` : "")), React.createElement("section", {
+  }, parts.join(" + "), debt > 0 ? ` − nợ thẻ ${short(debt)}` : ""), React.createElement(NetworthTrend, {
+    refreshKey: snapKey
+  })), React.createElement("section", {
     style: {
       marginBottom: 26
     }
@@ -2500,14 +2553,19 @@ function Accounts({
       fontSize: 11,
       color: cssVar("--green")
     }
-  }, "lãi ước tính +", short(a.est_interest)) : null)))), active.length >= 2 && React.createElement(Button, {
+  }, "lãi ước tính +", short(a.est_interest)) : null)))), active.length + (data.has_stock ? 1 : 0) >= 2 && React.createElement(Button, {
     kind: "outline",
     onClick: () => onAdd("transfer"),
     style: {
       width: "100%",
       marginTop: 12
     }
-  }, "Chuyển tiền giữa tài khoản")), React.createElement("section", {
+  }, "Chuyển tiền giữa tài khoản")), React.createElement(IncomeRulesSection, {
+    data: data,
+    reload: reload,
+    flash: flash,
+    onReceive: onReceiveIncome
+  }), React.createElement("section", {
     style: {
       marginBottom: 26
     }
@@ -2565,7 +2623,11 @@ function Accounts({
       marginTop: -8,
       marginBottom: 26
     }
-  }, "Chờ claim công ty ", short(data.claims.total)), transfers.length > 0 && React.createElement("section", {
+  }, "Chờ claim công ty ", short(data.claims.total)), React.createElement(GoalsSection, {
+    data: data,
+    reload: reload,
+    flash: flash
+  }), transfers.length > 0 && React.createElement("section", {
     style: {
       marginBottom: 26
     }
@@ -2710,7 +2772,11 @@ function AccountForm({
   return React.createElement(Sheet, {
     title: initial ? "Sửa tài khoản" : "Thêm tài khoản",
     onClose: onClose
-  }, React.createElement(Field, {
+  }, initial && !initial.archived && React.createElement(ReconcileBox, {
+    account: initial,
+    flash: flash,
+    onDone: onSaved
+  }), React.createElement(Field, {
     label: "Tên"
   }, React.createElement("input", {
     className: "field",
@@ -2852,7 +2918,7 @@ function IncomeEntry({
   const firstPick = defaultAccount(accounts, "bank") || (accounts[0] || {}).id || "";
   const [amount, setAmount] = useState(src.amount ? String(src.amount) : "");
   const [source, setSource] = useState(src.source || "salary");
-  const [accountId, setAccountId] = useState(initial ? src.account_id || "" : firstPick);
+  const [accountId, setAccountId] = useState(initial || prefill && prefill.account_id !== undefined ? src.account_id || "" : firstPick);
   const [note, setNote] = useState(src.note || "");
   const [date, setDate] = useState(src.date || todayISO());
   const [busy, setBusy] = useState(false);
@@ -2876,7 +2942,8 @@ function IncomeEntry({
         account_id: accountId || null,
         note: note.trim(),
         date,
-        claim_tx_ids: source === "reimburse" ? claimIds : []
+        claim_tx_ids: source === "reimburse" ? claimIds : [],
+        rule_id: !initial && src.rule_id ? src.rule_id : undefined
       };
       if (initial) await api("/incomes/" + initial.id, {
         method: "PUT",
@@ -3042,7 +3109,7 @@ function TransferEntry({
   }, React.createElement(KindSwitch, {
     value: "transfer",
     onChange: onSwitch
-  }), accounts.length < 2 ? React.createElement(Empty, {
+  }), accounts.length + (data.has_stock ? 1 : 0) < 2 ? React.createElement(Empty, {
     text: "Cần ít nhất 2 tài khoản để chuyển tiền. Thêm tài khoản ở tab Tài khoản."
   }) : React.createElement(React.Fragment, null, React.createElement(AmountInput, {
     value: amount,
@@ -3051,10 +3118,13 @@ function TransferEntry({
   }), React.createElement(Field, {
     label: "Từ tài khoản"
   }, React.createElement(Chips, {
-    options: accounts.map(a => ({
+    options: [...accounts.map(a => ({
       id: a.id,
       label: `${a.name} ${short(a.balance)}`
-    })),
+    })), ...(data.has_stock ? [{
+      id: "stock",
+      label: "Chứng khoán"
+    }] : [])],
     value: from,
     onChange: v => {
       setFrom(v);
@@ -3062,12 +3132,15 @@ function TransferEntry({
     }
   })), React.createElement(Field, {
     label: "Sang tài khoản",
-    hint: "Rút tiền mặt, gửi tiết kiệm, nạp ví đều ghi ở đây. Chuyển tiền không tính là thu hay chi."
+    hint: `Rút tiền mặt, gửi tiết kiệm, nạp ví đều ghi ở đây. Chuyển tiền không tính là thu hay chi.${data.has_stock ? " Nạp, rút chứng khoán sẽ ghi luôn vào sổ Đầu tư." : ""}`
   }, React.createElement(Chips, {
-    options: accounts.filter(a => a.id !== from).map(a => ({
+    options: [...accounts.filter(a => a.id !== from).map(a => ({
       id: a.id,
       label: a.name
-    })),
+    })), ...(data.has_stock && from !== "stock" ? [{
+      id: "stock",
+      label: "Chứng khoán"
+    }] : [])],
     value: to,
     onChange: setTo
   })), React.createElement(Field, {
@@ -3426,6 +3499,797 @@ function ClaimPicker({
     checked: value.includes(t.id),
     onToggle: () => toggle(t)
   }))));
+}
+const mutedText = {
+  fontSize: 12,
+  color: "var(--muted)",
+  lineHeight: 1.5
+};
+function IncomeRulesSection({
+  data,
+  reload,
+  flash,
+  onReceive
+}) {
+  const [rules, setRules] = useState([]);
+  const [editing, setEditing] = useState(null);
+  useEffect(() => {
+    api("/income-rules").then(r => setRules(r.rules)).catch(() => {});
+  }, [data]);
+  return React.createElement("section", {
+    style: {
+      marginBottom: 26
+    }
+  }, React.createElement(SectionLabel, {
+    right: React.createElement("button", {
+      onClick: () => setEditing({}),
+      style: {
+        fontSize: 12,
+        color: cssVar("--blue")
+      }
+    }, "+ Định kỳ")
+  }, "Thu nhập định kỳ"), rules.length === 0 ? React.createElement("div", {
+    style: {
+      ...mutedText,
+      marginTop: 10
+    }
+  }, "Thêm lương hay khoản thu hằng tháng để app nhắc khi tới ngày và ghi bằng một chạm.") : React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, rules.map(r => React.createElement("div", {
+    key: r.id,
+    className: "tape between",
+    style: {
+      padding: "11px 0",
+      gap: 10
+    }
+  }, React.createElement("button", {
+    onClick: () => setEditing(r),
+    style: {
+      minWidth: 0,
+      flex: 1,
+      textAlign: "left"
+    }
+  }, React.createElement("span", {
+    className: "truncate",
+    style: {
+      display: "block",
+      fontSize: 14
+    }
+  }, r.name), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: r.active && r.days_left <= 0 ? cssVar("--amber") : cssVar("--muted")
+    }
+  }, !r.active ? "tạm dừng" : r.days_left < 0 ? `trễ ${-r.days_left} ngày so với ngày ${r.day}` : r.days_left === 0 ? "dự kiến nhận hôm nay" : `ngày ${r.day} hằng tháng, còn ${r.days_left} ngày`)), React.createElement("span", {
+    className: "row",
+    style: {
+      gap: 10,
+      flexShrink: 0
+    }
+  }, React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 13,
+      fontWeight: 500
+    }
+  }, short(r.amount)), r.active && r.days_left <= 3 ? React.createElement(Button, {
+    kind: "outline",
+    style: {
+      padding: "5px 12px",
+      fontSize: 12
+    },
+    onClick: () => onReceive(r)
+  }, "Đã nhận") : null)))), editing && React.createElement(RuleForm, {
+    initial: editing.id ? editing : null,
+    data: data,
+    flash: flash,
+    onClose: () => setEditing(null),
+    onSaved: () => {
+      setEditing(null);
+      reload();
+    }
+  }));
+}
+function RuleForm({
+  initial,
+  data,
+  onClose,
+  onSaved,
+  flash
+}) {
+  const r = initial || {};
+  const accounts = (data.accounts || []).filter(a => !a.archived || a.id === r.account_id);
+  const [name, setName] = useState(r.name || "Lương");
+  const [amount, setAmount] = useState(r.amount ? String(r.amount) : "");
+  const [source, setSource] = useState(r.source || "salary");
+  const [day, setDay] = useState(r.day || 5);
+  const [accountId, setAccountId] = useState(initial ? r.account_id || "" : defaultAccount(accounts, "bank"));
+  const [active, setActive] = useState(initial ? Boolean(r.active) : true);
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const body = {
+        name: name.trim(),
+        amount: Number(amount) || 0,
+        source,
+        day: Number(day),
+        account_id: accountId || null,
+        active
+      };
+      if (initial) await api("/income-rules/" + initial.id, {
+        method: "PUT",
+        body
+      });else await api("/income-rules", {
+        method: "POST",
+        body
+      });
+      flash(initial ? "Đã cập nhật khoản thu định kỳ" : "Đã thêm khoản thu định kỳ");
+      onSaved();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api("/income-rules/" + initial.id, {
+        method: "DELETE"
+      });
+      flash("Đã xóa khoản thu định kỳ");
+      onSaved();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  const days = Array.from({
+    length: 28
+  }, (_, i) => i + 1);
+  return React.createElement(Sheet, {
+    title: initial ? "Sửa thu nhập định kỳ" : "Thu nhập định kỳ",
+    onClose: onClose
+  }, React.createElement(Field, {
+    label: "Tên"
+  }, React.createElement("input", {
+    className: "field",
+    value: name,
+    placeholder: "Lương MSI, tiền cho thuê nhà…",
+    onChange: e => setName(e.target.value)
+  })), React.createElement(Field, {
+    label: "Số tiền dự kiến",
+    hint: "Khi tiền về, bạn sửa được số thực nhận trước khi lưu."
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: amount,
+    onChange: e => setAmount(e.target.value)
+  }), Number(amount) > 0 && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 6
+    }
+  }, money(Number(amount)))), React.createElement(Field, {
+    label: "Nguồn thu"
+  }, React.createElement(Chips, {
+    options: INCOME_SOURCES,
+    value: source,
+    onChange: setSource
+  })), React.createElement(Field, {
+    label: "Ngày nhận hằng tháng"
+  }, React.createElement("select", {
+    className: "field num",
+    value: day,
+    style: {
+      width: 110
+    },
+    onChange: e => setDay(e.target.value)
+  }, days.map(d => React.createElement("option", {
+    key: d,
+    value: d
+  }, d)))), accounts.length > 0 && React.createElement(Field, {
+    label: "Vào tài khoản"
+  }, React.createElement(Chips, {
+    options: [...accounts.map(a => ({
+      id: a.id,
+      label: a.name
+    })), {
+      id: "",
+      label: "Không ghi vào tài khoản"
+    }],
+    value: accountId,
+    onChange: setAccountId
+  })), initial && React.createElement(Field, {
+    label: "Trạng thái"
+  }, React.createElement(Chips, {
+    options: [{
+      id: "on",
+      label: "Đang dùng"
+    }, {
+      id: "off",
+      label: "Tạm dừng"
+    }],
+    value: active ? "on" : "off",
+    onChange: v => setActive(v === "on")
+  })), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 12,
+      marginTop: 24
+    }
+  }, React.createElement(Button, {
+    kind: "ghost",
+    onClick: onClose
+  }, "Hủy"), React.createElement(Button, {
+    onClick: submit,
+    disabled: busy || !(Number(amount) > 0) || !name.trim(),
+    style: {
+      flex: 1
+    }
+  }, busy ? "Đang lưu…" : initial ? "Cập nhật" : "Thêm khoản định kỳ")), initial && React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginTop: 16
+    }
+  }, confirmDel ? React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "Xóa? Các khoản thu đã ghi vẫn giữ nguyên.", " ", React.createElement("button", {
+    onClick: remove,
+    style: {
+      color: cssVar("--red"),
+      fontWeight: 600
+    }
+  }, "Xóa"), "  ", React.createElement("button", {
+    onClick: () => setConfirmDel(false),
+    style: {
+      color: cssVar("--muted")
+    }
+  }, "Giữ lại")) : React.createElement(Button, {
+    kind: "danger",
+    onClick: () => setConfirmDel(true)
+  }, "Xóa khoản định kỳ")));
+}
+function GoalsSection({
+  data,
+  reload,
+  flash
+}) {
+  const [goals, setGoals] = useState([]);
+  const [editing, setEditing] = useState(null);
+  useEffect(() => {
+    api("/goals").then(r => setGoals(r.goals)).catch(() => {});
+  }, [data]);
+  return React.createElement("section", {
+    style: {
+      marginBottom: 26
+    }
+  }, React.createElement(SectionLabel, {
+    right: React.createElement("button", {
+      onClick: () => setEditing({}),
+      style: {
+        fontSize: 12,
+        color: cssVar("--blue")
+      }
+    }, "+ Mục tiêu")
+  }, "Mục tiêu tiết kiệm"), goals.length === 0 ? React.createElement("div", {
+    style: {
+      ...mutedText,
+      marginTop: 10
+    }
+  }, "Đặt mục tiêu như quỹ dự phòng, mua xe, du lịch. Gắn với một tài khoản thì tiến độ tự chạy theo số dư.") : React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, goals.map(g => React.createElement("button", {
+    key: g.id,
+    onClick: () => setEditing(g),
+    className: "tape",
+    style: {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      padding: "12px 0"
+    }
+  }, React.createElement("div", {
+    className: "between",
+    style: {
+      gap: 10
+    }
+  }, React.createElement("span", {
+    className: "truncate",
+    style: {
+      fontSize: 14,
+      fontWeight: 500
+    }
+  }, g.name), React.createElement("span", {
+    className: "num",
+    style: {
+      fontSize: 13,
+      flexShrink: 0
+    }
+  }, short(g.current), " / ", short(g.target))), React.createElement("div", {
+    style: {
+      margin: "8px 0 6px"
+    }
+  }, React.createElement(Bar, {
+    value: g.current,
+    max: g.target || 1,
+    color: g.pct >= 1 ? cssVar("--green") : cssVar("--primary"),
+    height: 4
+  })), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, Math.round(g.pct * 100), "%", g.account_name ? `, theo số dư ${g.account_name}` : "", g.pct >= 1 ? ", đã đạt" : g.months_left > 0 ? `, cần thêm ${short(g.monthly_needed)}/tháng, còn ${g.months_left} tháng` : g.deadline ? `, hạn ${fmtDate(g.deadline)}` : "")))), editing && React.createElement(GoalForm, {
+    initial: editing.id ? editing : null,
+    data: data,
+    flash: flash,
+    onClose: () => setEditing(null),
+    onSaved: () => {
+      setEditing(null);
+      reload();
+    }
+  }));
+}
+function GoalForm({
+  initial,
+  data,
+  onClose,
+  onSaved,
+  flash
+}) {
+  const g = initial || {};
+  const accounts = (data.accounts || []).filter(a => !a.archived || a.id === g.account_id);
+  const [name, setName] = useState(g.name || "");
+  const [target, setTarget] = useState(g.target ? String(g.target) : "");
+  const [deadline, setDeadline] = useState(g.deadline || "");
+  const [accountId, setAccountId] = useState(g.account_id || "");
+  const [saved, setSaved] = useState(g.saved ? String(g.saved) : "");
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const body = {
+        name: name.trim(),
+        target: Number(target) || 0,
+        deadline: deadline || null,
+        account_id: accountId || null,
+        saved: accountId ? 0 : Number(saved) || 0
+      };
+      if (initial) await api("/goals/" + initial.id, {
+        method: "PUT",
+        body
+      });else await api("/goals", {
+        method: "POST",
+        body
+      });
+      flash(initial ? "Đã cập nhật mục tiêu" : "Đã thêm mục tiêu");
+      onSaved();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api("/goals/" + initial.id, {
+        method: "DELETE"
+      });
+      flash("Đã xóa mục tiêu");
+      onSaved();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  return React.createElement(Sheet, {
+    title: initial ? "Sửa mục tiêu" : "Mục tiêu tiết kiệm",
+    onClose: onClose
+  }, React.createElement(Field, {
+    label: "Tên mục tiêu"
+  }, React.createElement("input", {
+    className: "field",
+    value: name,
+    autoFocus: !initial,
+    placeholder: "Quỹ dự phòng 6 tháng, đổi xe…",
+    onChange: e => setName(e.target.value)
+  })), React.createElement(Field, {
+    label: "Số tiền cần có"
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: target,
+    onChange: e => setTarget(e.target.value)
+  }), Number(target) > 0 && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 6
+    }
+  }, money(Number(target)))), React.createElement(Field, {
+    label: "Hạn hoàn thành",
+    hint: "Để trống nếu không có hạn. Có hạn thì app tính cần để dành bao nhiêu mỗi tháng."
+  }, React.createElement("input", {
+    className: "field num",
+    type: "date",
+    value: deadline,
+    style: {
+      width: "auto"
+    },
+    onChange: e => setDeadline(e.target.value)
+  })), accounts.length > 0 && React.createElement(Field, {
+    label: "Theo dõi bằng"
+  }, React.createElement(Chips, {
+    options: [...accounts.map(a => ({
+      id: a.id,
+      label: a.name
+    })), {
+      id: "",
+      label: "Tự nhập số đã có"
+    }],
+    value: accountId,
+    onChange: setAccountId
+  })), !accountId && React.createElement(Field, {
+    label: "Đã để dành được"
+  }, React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: saved,
+    onChange: e => setSaved(e.target.value)
+  })), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 12,
+      marginTop: 24
+    }
+  }, React.createElement(Button, {
+    kind: "ghost",
+    onClick: onClose
+  }, "Hủy"), React.createElement(Button, {
+    onClick: submit,
+    disabled: busy || !name.trim() || !(Number(target) > 0),
+    style: {
+      flex: 1
+    }
+  }, busy ? "Đang lưu…" : initial ? "Cập nhật" : "Thêm mục tiêu")), initial && React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginTop: 16
+    }
+  }, confirmDel ? React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "Xóa mục tiêu này?", " ", React.createElement("button", {
+    onClick: remove,
+    style: {
+      color: cssVar("--red"),
+      fontWeight: 600
+    }
+  }, "Xóa"), "  ", React.createElement("button", {
+    onClick: () => setConfirmDel(false),
+    style: {
+      color: cssVar("--muted")
+    }
+  }, "Giữ lại")) : React.createElement(Button, {
+    kind: "danger",
+    onClick: () => setConfirmDel(true)
+  }, "Xóa mục tiêu")));
+}
+function NetworthTrend({
+  refreshKey
+}) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    api("/networth").then(r => setRows(r.months)).catch(() => setRows([]));
+  }, [refreshKey]);
+  if (!rows) return null;
+  if (rows.length < 2) {
+    return React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: cssVar("--muted"),
+        marginTop: 8
+      }
+    }, "App lưu mỗi ngày một mốc tài sản ròng. Biểu đồ theo tháng sẽ hiện khi có từ 2 tháng dữ liệu.");
+  }
+  const max = Math.max(...rows.map(r => Math.max(0, r.net)), 1);
+  return React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: "flex-end",
+      gap: 6,
+      height: 72,
+      marginTop: 14
+    }
+  }, rows.map((r, i) => React.createElement("div", {
+    key: r.date,
+    title: `${fmtDate(r.date)}: ${money(r.net)}`,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "flex-end",
+      height: "100%"
+    }
+  }, React.createElement("div", {
+    style: {
+      height: Math.max(3, Math.max(0, r.net) / max * 52),
+      borderRadius: "3px 3px 0 0",
+      background: i === rows.length - 1 ? cssVar("--primary") : cssVar("--track")
+    }
+  }), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 10,
+      marginTop: 5,
+      color: cssVar("--muted"),
+      textAlign: "center"
+    }
+  }, "T", Number(r.date.slice(5, 7))))));
+}
+function ReconcileBox({
+  account,
+  flash,
+  onDone
+}) {
+  const [actual, setActual] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [hist, setHist] = useState([]);
+  useEffect(() => {
+    api(`/accounts/${account.id}/adjustments`).then(r => setHist(r.adjustments)).catch(() => {});
+  }, [account.id]);
+  const diff = actual === "" ? null : Number(actual) - account.balance;
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const r = await api(`/accounts/${account.id}/reconcile`, {
+        method: "POST",
+        body: {
+          actual: Number(actual)
+        }
+      });
+      flash(r.diff === 0 ? "Số dư khớp, không cần điều chỉnh" : `Đã điều chỉnh ${r.diff > 0 ? "+" : "−"}${money(Math.abs(r.diff))}`);
+      onDone();
+    } catch (e) {
+      flash(e.message);
+      setBusy(false);
+    }
+  };
+  return React.createElement("div", {
+    className: "box",
+    style: {
+      padding: 14,
+      marginBottom: 22
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, "Đối soát số dư"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      color: cssVar("--muted"),
+      marginTop: 4
+    }
+  }, "Trong app: ", money(account.balance)), React.createElement("input", {
+    className: "field num",
+    type: "number",
+    inputMode: "numeric",
+    value: actual,
+    placeholder: "Số dư thực tế đang thấy ở ngân hàng, ví",
+    onChange: e => setActual(e.target.value),
+    style: {
+      marginTop: 10
+    }
+  }), diff != null && React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 12,
+      marginTop: 6,
+      color: diff === 0 ? cssVar("--green") : cssVar("--amber")
+    }
+  }, diff === 0 ? "Khớp với app" : `Chênh ${diff > 0 ? "+" : "−"}${money(Math.abs(diff))}. App ghi một khoản điều chỉnh, không tính là thu hay chi.`), React.createElement(Button, {
+    kind: "outline",
+    onClick: submit,
+    disabled: busy || actual === "",
+    style: {
+      width: "100%",
+      marginTop: 10
+    }
+  }, busy ? "Đang đối soát…" : "Đối soát"), hist.length > 0 && React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, hist.slice(0, 5).map(h => React.createElement("div", {
+    key: h.id,
+    className: "between num",
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted"),
+      padding: "3px 0"
+    }
+  }, React.createElement("span", null, "Điều chỉnh ", fmtDate(h.date)), React.createElement("span", null, h.amount > 0 ? "+" : "−", money(Math.abs(h.amount)))))));
+}
+function CashflowReport({
+  month,
+  setMonth
+}) {
+  const [cf, setCf] = useState(null);
+  useEffect(() => {
+    api(`/cashflow?months=12&month=${month}`).then(setCf).catch(() => setCf(null));
+  }, [month]);
+  if (!cf || !cf.months.some(m => m.income > 0)) return null;
+  const max = Math.max(...cf.months.map(m => Math.max(m.income, m.expense)), 1);
+  const cur = cf.months.find(m => m.ym === month);
+  const srcMax = Math.max(...cf.by_source.map(s => s.total), 1);
+  return React.createElement("section", {
+    style: {
+      marginBottom: 30
+    }
+  }, React.createElement(SectionLabel, null, "Thu và chi 12 tháng"), cur && React.createElement("div", {
+    className: "grid4",
+    style: {
+      gridTemplateColumns: "1fr 1fr 1fr",
+      marginTop: 12
+    }
+  }, React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Thu"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      color: cssVar("--green")
+    }
+  }, "+", short(cur.income))), React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Chi"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 16,
+      fontWeight: 600
+    }
+  }, short(cur.expense))), React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, "Còn lại"), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      color: cur.net < 0 ? cssVar("--red") : cssVar("--ink")
+    }
+  }, cur.net < 0 ? "−" : "", short(Math.abs(cur.net))))), React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: "flex-end",
+      gap: 4,
+      height: 110,
+      marginTop: 16
+    }
+  }, cf.months.map(m => React.createElement("button", {
+    key: m.ym,
+    onClick: () => setMonth(m.ym),
+    title: `${MONTH_VN(m.ym)}: thu ${money(m.income)}, chi ${money(m.expense)}`,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "flex-end",
+      height: "100%"
+    }
+  }, React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: "flex-end",
+      gap: 2,
+      height: 86
+    }
+  }, React.createElement("div", {
+    style: {
+      flex: 1,
+      height: Math.max(m.income > 0 ? 3 : 1, m.income / max * 86),
+      background: cssVar("--green"),
+      opacity: m.ym === month ? 1 : 0.55,
+      borderRadius: "2px 2px 0 0"
+    }
+  }), React.createElement("div", {
+    style: {
+      flex: 1,
+      height: Math.max(m.expense > 0 ? 3 : 1, m.expense / max * 86),
+      background: m.ym === month ? cssVar("--primary") : cssVar("--track"),
+      borderRadius: "2px 2px 0 0"
+    }
+  })), React.createElement("div", {
+    className: "num",
+    style: {
+      fontSize: 9,
+      marginTop: 5,
+      color: m.ym === month ? cssVar("--ink") : cssVar("--muted")
+    }
+  }, Number(m.ym.slice(5)))))), React.createElement("div", {
+    className: "row",
+    style: {
+      gap: 14,
+      marginTop: 8,
+      fontSize: 11,
+      color: cssVar("--muted")
+    }
+  }, React.createElement("span", {
+    className: "row",
+    style: {
+      gap: 5
+    }
+  }, React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: cssVar("--green")
+    }
+  }), "Thu"), React.createElement("span", {
+    className: "row",
+    style: {
+      gap: 5
+    }
+  }, React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: cssVar("--primary")
+    }
+  }), "Chi")), cf.by_source.length > 0 && React.createElement("div", {
+    style: {
+      marginTop: 18
+    }
+  }, cf.by_source.map(s => React.createElement("div", {
+    key: s.source,
+    style: {
+      marginBottom: 10
+    }
+  }, React.createElement("div", {
+    className: "between",
+    style: {
+      fontSize: 13,
+      marginBottom: 5
+    }
+  }, React.createElement("span", null, sourceLabel(s.source)), React.createElement("span", {
+    className: "num"
+  }, money(s.total))), React.createElement(Bar, {
+    value: s.total,
+    max: srcMax,
+    color: cssVar("--green"),
+    height: 3
+  })))));
 }
 const TRADE_TYPES = [{
   id: "BUY",
@@ -6345,7 +7209,10 @@ function Reports({
       color: cssVar("--muted"),
       marginTop: 3
     }
-  }, rep.totals.n, " giao dịch · trung bình ", short(avgPerDay), "/ngày")), React.createElement("section", {
+  }, rep.totals.n, " giao dịch · trung bình ", short(avgPerDay), "/ngày")), React.createElement(CashflowReport, {
+    month: month,
+    setMonth: setMonth
+  }), React.createElement("section", {
     style: {
       marginBottom: 30
     }
@@ -6985,6 +7852,16 @@ function App() {
     flash(msg);
     reload();
   };
+  const receiveIncome = r => setEntry({
+    kind: "income",
+    prefill: {
+      source: r.source,
+      amount: r.amount,
+      account_id: r.account_id,
+      note: r.name,
+      rule_id: r.id
+    }
+  });
   const onDeleted = id => {
     setTxs(prev => prev.filter(t => t.id !== id));
     setEntry(null);
@@ -7096,6 +7973,7 @@ function App() {
     txs: txs,
     incomes: incomes,
     onOpenClaims: () => setShowClaims(true),
+    onReceiveIncome: receiveIncome,
     onEdit: t => setEntry({
       initial: t
     }),
@@ -7113,6 +7991,7 @@ function App() {
     reload: reload,
     flash: flash,
     onOpenClaims: () => setShowClaims(true),
+    onReceiveIncome: receiveIncome,
     onAdd: kind => setEntry({
       kind
     }),

@@ -3,6 +3,7 @@
  * Chạy 1 lần/ngày bằng systemd timer. Không mở port, không giữ tiến trình.
  */
 import { q } from "../server/db.js";
+import { accountsWithBalance, claimSummary, incomeRulesWithStatus, saveNetworthSnapshot } from "../server/money.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT = process.env.TELEGRAM_CHAT_ID;
@@ -79,6 +80,27 @@ function cardLines(userId) {
   return lines;
 }
 
+function moneyLines(userId) {
+  const lines = [];
+  const ruleIds = [];
+  for (const r of incomeRulesWithStatus(userId)) {
+    if (!r.active || r.days_left > 0 || r.last_notified === today) continue;
+    lines.push(`💰 ${r.name}: dự kiến ${money(r.amount)} ${r.days_left === 0 ? "hôm nay" : `từ ${r.next_date}`}. Tiền về thì mở Sổ Chi bấm Đã nhận.`);
+    ruleIds.push(r.id);
+  }
+  for (const a of accountsWithBalance(userId)) {
+    if (a.archived || a.kind !== "saving" || !a.maturity) continue;
+    const left = daysBetween(today, a.maturity);
+    if (![7, 3, 1, 0].includes(left)) continue;
+    lines.push(`🏦 ${a.name} đáo hạn ${left === 0 ? "<b>HÔM NAY</b>" : `sau ${left} ngày`} (${a.maturity}), số dư ${money(a.balance)}`);
+  }
+  const cs = claimSummary(userId);
+  if (cs.count > 0 && new Date(Date.now() + 7 * 3600000).getUTCDay() === 1) {
+    lines.push(`🧾 Chờ claim công ty: ${cs.count} khoản, ${money(cs.total)}`);
+  }
+  return { lines, ruleIds };
+}
+
 async function main() {
   const users = q.all("SELECT id, username FROM users");
   if (!users.length) return console.log("[nhac-han] chua co tai khoan nao");
@@ -86,7 +108,13 @@ async function main() {
   for (const u of users) {
     const { lines: bills, notified } = billLines(u.id);
     const cards = cardLines(u.id);
-    if (!bills.length && !cards.length) {
+    const extra = moneyLines(u.id);
+    try {
+      if (q.get("SELECT 1 AS x FROM accounts WHERE user_id=? LIMIT 1", u.id)) saveNetworthSnapshot(u.id, null);
+    } catch (e) {
+      console.error("[nhac-han] khong luu duoc moc tai san:", e.message);
+    }
+    if (!bills.length && !cards.length && !extra.lines.length) {
       console.log(`[nhac-han] ${u.username}: khong co gi den han`);
       continue;
     }
@@ -95,8 +123,11 @@ async function main() {
     if (bills.length) msg += "\n<b>Hóa đơn</b>\n" + bills.join("\n") + "\n";
     if (cards.length) msg += "\n<b>Thẻ tín dụng</b>\n" + cards.join("\n") + "\n";
 
+    if (extra.lines.length) msg += "\n<b>Tiền vào, tiết kiệm, claim</b>\n" + extra.lines.join("\n") + "\n";
+
     const sent = await send(msg.trim());
     if (sent) {
+      for (const id of extra.ruleIds) q.run("UPDATE income_rules SET last_notified=? WHERE id=?", today, id);
       for (const id of notified) q.run("UPDATE bills SET last_notified=? WHERE id=?", today, id);
     }
     console.log(`[nhac-han] ${u.username}: ${bills.length} hoa don, ${cards.length} the — gui ${sent ? "OK" : "that bai"}`);

@@ -1,0 +1,14 @@
+[Unit]
+Description=So Chi - sao luu so lieu moi dem
+
+[Service]
+Type=oneshot
+User=hoang
+WorkingDirectory=/home/hoang/so-chi
+EnvironmentFile=/home/hoang/so-chi/.env
+ExecStart=/usr/bin/node --max-old-space-size=64 scripts/backup.js
+MemoryMax=120M
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hoang/sochi-data /home/hoang/sochi-backups
+SyslogIdentifier=sochi-backup

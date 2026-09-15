@@ -1,6 +1,6 @@
 /* ============================ Tổng quan ============================ */
 
-function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBill, goTab, onOpenClaims }) {
+function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBill, goTab, onOpenClaims, onReceiveIncome }) {
   const { categories, cards, bills } = data;
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
@@ -111,6 +111,22 @@ function Home({ data, month, setMonth, txs, incomes = [], onEdit, onAdd, onPayBi
           </button>
         </section>
       )}
+
+      {(data.income_due || []).map((r) => (
+        <div key={r.id} className="box between" style={{ padding: 14, marginBottom: 12, gap: 12 }}>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 11, color: cssVar("--muted") }}>
+              {r.days_left === 0 ? "Dự kiến nhận hôm nay" : `Dự kiến từ ${fmtDate(r.next_date)}`}
+            </span>
+            <span className="truncate" style={{ display: "block", fontSize: 14, fontWeight: 500, marginTop: 2 }}>
+              {r.name} <span className="num" style={{ color: cssVar("--green") }}>+{short(r.amount)}</span>
+            </span>
+          </span>
+          <Button kind="outline" style={{ padding: "6px 14px", fontSize: 13, flexShrink: 0 }} onClick={() => onReceiveIncome(r)}>
+            Đã nhận
+          </Button>
+        </div>
+      ))}
 
       {data.claims && data.claims.count > 0 && (
         <button className="box between" onClick={onOpenClaims}
